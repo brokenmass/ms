@@ -11,6 +11,9 @@ The bootstrapping language is typescript :O
 - [ ] [Turing-complete](./examples/rule110.ms)
 - [ ] Statically typed
 - [ ] [Self-hosted](<https://en.wikipedia.org/wiki/Self-hosting_(compilers)>)
+- [ ] Tree shaking (remove unused code)
+- [ ] Native automatic chaining ( function `f(a, b)` can be written as `a->f(type b)`)
+- [ ] Native partial method application
 - [ ] Optimized
-- [ ] Crossplatform
 - [ ] Remove FASM dependency
+- [ ] Crossplatform

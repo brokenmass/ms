@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import { generateAST } from './ast';
 import tokenizer from './tokenizer';
 
 const compile = (filename: string) => {
@@ -8,11 +8,7 @@ const compile = (filename: string) => {
   }
 
   try {
-    const text = fs.readFileSync(filename, 'utf-8');
-
-    console.log(text);
-
-    tokenizer(filename, text);
+    generateAST(tokenizer(filename));
   } catch (error) {
     console.error(`Error while trying to read file '${filename}' ${error}`);
     process.exit(1);
