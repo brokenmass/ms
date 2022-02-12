@@ -1,6 +1,14 @@
 import { VALUE_TYPE } from '../coreTypes';
 import print from './print';
 import sum from './sum';
+import exit from './exit';
+
+export type codePrinter = (input: string) => void;
+export type labelGenerator = () => string;
+export type codeGenerator = (
+  print: codePrinter,
+  nextLabel: codePrinter,
+) => void;
 
 export type functionDescriptor = {
   used: boolean;
@@ -8,9 +16,9 @@ export type functionDescriptor = {
   output: VALUE_TYPE;
   code: {
     asm_x86_64: {
-      header?: (print: (input: string) => void) => void;
-      call?: (print: (input: string) => void) => void;
-      footer?: (print: (input: string) => void) => void;
+      header?: codeGenerator;
+      call?: codeGenerator;
+      footer?: codeGenerator;
     };
   };
 };
@@ -20,6 +28,7 @@ export type functionList = {
 const nativeMethods: functionList = {
   print,
   sum,
+  exit,
 };
 
 export default nativeMethods;

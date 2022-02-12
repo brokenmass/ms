@@ -11,7 +11,8 @@ export const compileError = (
 ) => {
   const errorMessage = `${locToString(item.loc)}: ${error}`;
   console.error(errorMessage);
-  throw new Error(errorMessage);
+  process.exit(1);
+  // throw new Error(errorMessage);
 };
 
 export const inspect = (input: unknown) =>

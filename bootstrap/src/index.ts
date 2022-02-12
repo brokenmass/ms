@@ -3,7 +3,20 @@ import * as path from 'path';
 import { generateASM } from './asm';
 import { generateAST } from './ast';
 import tokenizer from './tokenizer';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
+
+const execCommand = (command: string, args: string[] = []) => {
+  console.log('-------');
+  console.log(command, args.join(' '));
+  const out = spawnSync(command, args, {
+    encoding: 'utf-8',
+    stdio: 'inherit',
+  });
+  console.log('');
+  console.log(`Exited with status code ${out.status}`);
+
+  return out;
+};
 const compile = (filename: string) => {
   if (!filename) {
     console.error('Missing filename');
@@ -19,18 +32,13 @@ const compile = (filename: string) => {
   const executableFile = './' + path.join(outdir, name);
 
   writeFileSync(asmFile, text);
-  console.log(`fasm ${asmFile} -m 500000 ${executableFile}`);
-  console.log(
-    execSync(`fasm ${asmFile} -m 500000 ${executableFile}`, {
-      encoding: 'utf-8',
-    }),
-  );
-  console.log(`chmod +x ${executableFile}`);
-  console.log(
-    execSync(`chmod +x ${executableFile}`, {
-      encoding: 'utf-8',
-    }),
-  );
+  execCommand('fasm', [asmFile, executableFile, '-m', '500000']); // -m 500000 ${executableFile}`);
+
+  execCommand('chmod', ['+x', executableFile]);
+
+  if (process.argv.includes('-r')) {
+    process.exit(execCommand(executableFile).status);
+  }
 };
 
 export { compile };

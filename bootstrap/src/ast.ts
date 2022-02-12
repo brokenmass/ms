@@ -4,10 +4,12 @@ import nativeMethods, { functionDescriptor } from './nativeMethods';
 import { VALUE_TYPE } from './coreTypes';
 import config from './config';
 export enum OP_TYPES {
-  DECLARATION,
-  ASSIGNMENT,
-  FUNCTION_CALL,
-  IMMEDIATE,
+  DECLARATION = 'declaration',
+  ASSIGNMENT = 'assignment',
+  FUNCTION_CALL = 'functionCall',
+  IF = 'if',
+  WHILE = 'while',
+  IMMEDIATE = 'immediate',
 }
 
 export enum SPECIAL_CHARS {
@@ -70,11 +72,32 @@ export type IMMEDIATE_OP = {
   value: string;
 };
 
+export type CONTROL_FLOW_IF_OP = {
+  opType: OP_TYPES.IF;
+  name: string;
+  loc: loc;
+  condition: AST;
+  ifBody: AST;
+  elseBody?: AST;
+  valueType: VALUE_TYPE.VOID;
+};
+
+export type CONTROL_FLOW_WHILE_OP = {
+  opType: OP_TYPES.WHILE;
+  name: string;
+  loc: loc;
+  condition: AST;
+  body: AST;
+  valueType: VALUE_TYPE.VOID;
+};
+
 export type OP =
   | DECLARATION_OP
   | ASSIGNMENT_OP
   | FUNCTION_CALL_OP
-  | IMMEDIATE_OP;
+  | IMMEDIATE_OP
+  | CONTROL_FLOW_IF_OP
+  | CONTROL_FLOW_WHILE_OP;
 
 export type AST = OP[];
 export const generateAST = (tokenizedFile: tokenBlock): AST => {
@@ -184,6 +207,84 @@ const parseNextOP = (
       valueType: assignedValue.valueType,
       value: assignedValue,
     };
+  } else if (item.value === CONTROL_FLOW_KEYWORDS.IF) {
+    if (!isLH) {
+      return compileError(
+        item,
+        `${OP_TYPES.IF} instructions cannot appear on the right side of an assignment`,
+      );
+    }
+
+    if (
+      item.parentBlock.blockType === BLOCK_TYPE.ROUND ||
+      item.parentBlock.blockType === BLOCK_TYPE.SQUARE
+    ) {
+      return compileError(
+        item,
+        `Cannot use if/else inside ${item.parentBlock.blockType} blocks`,
+      );
+    }
+    const conditionBlock = items.shift();
+    if (
+      conditionBlock.type !== TOKEN_TYPE.BLOCK ||
+      conditionBlock.blockType !== BLOCK_TYPE.ROUND
+    ) {
+      return compileError(item, 'Missing if condition');
+    }
+
+    const condition = parseBlock(conditionBlock);
+    if (condition.length > 1) {
+      return compileError(
+        condition[1],
+        'condition block cannot contain more than a condition',
+      );
+    }
+    let ifBody: AST;
+    if (items[0].type === TOKEN_TYPE.BLOCK) {
+      const ifBodyBlock = items.shift() as tokenBlock;
+      if (ifBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
+        return compileError(
+          ifBodyBlock,
+          `Only ${BLOCK_TYPE.CURLY} blocks are allowed after an if condition`,
+        );
+      }
+      ifBody = parseBlock(ifBodyBlock);
+    } else {
+      ifBody = [parseNextOP(items)];
+    }
+
+    let elseBody: AST;
+    if (
+      items[0].type === TOKEN_TYPE.WORD &&
+      items[0].value === CONTROL_FLOW_KEYWORDS.ELSE
+    ) {
+      items.shift();
+
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      if (items[0].type === TOKEN_TYPE.BLOCK) {
+        const elseBodyBlock = items.shift() as tokenBlock;
+        if (elseBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
+          return compileError(
+            elseBodyBlock,
+            `Only ${BLOCK_TYPE.CURLY} blocks are allowed after an if condition`,
+          );
+        }
+        elseBody = parseBlock(elseBodyBlock);
+      } else {
+        elseBody = [parseNextOP(items)];
+      }
+    }
+
+    return {
+      opType: OP_TYPES.IF,
+      condition,
+      name: item.value,
+      loc: item.loc,
+      ifBody,
+      elseBody,
+      valueType: VALUE_TYPE.VOID,
+    };
   } else if (nativeMethods[item.value]) {
     const methods = nativeMethods[item.value];
     const parametersBlock = items.shift();
@@ -221,6 +322,9 @@ const parseNextOP = (
       valueType: matchingMethod.output,
     };
   } else {
-    return compileError(item, 'Could not parse this token - Compiler error');
+    return compileError(
+      item,
+      `Could not parse token ${item.value}- Compiler error`,
+    );
   }
 };

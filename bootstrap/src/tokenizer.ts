@@ -3,7 +3,7 @@ import config from './config';
 import { compileError } from './utils';
 
 const EMPTY_CHARS = ' \r\n';
-const SPECIAL_CHARS = '->!#,.';
+const SPECIAL_CHARS = '|.,;';
 const BLOCK_OPENING_CHARS = '([{';
 const BLOCK_CLOSING_CHARS = ')]}';
 const NUMBER_CHARS = '01234567890';
@@ -35,6 +35,7 @@ export type token = {
   type: Exclude<TOKEN_TYPE, TOKEN_TYPE.BLOCK>;
   value: string;
   loc: loc;
+  parentBlock: tokenBlock;
 };
 export type tokenBlock = {
   type: TOKEN_TYPE.BLOCK;
@@ -210,6 +211,7 @@ const tokenizer = (filename: string): tokenBlock => {
         type: TOKEN_TYPE.STRING,
         loc: start,
         value,
+        parentBlock: blockStack[blockStack.length - 1],
       });
     } else if (isNumber(reader.currentChar)) {
       reader.advanceToEndOf(isNumber);
@@ -218,6 +220,7 @@ const tokenizer = (filename: string): tokenBlock => {
         type: TOKEN_TYPE.NUMBER,
         loc: start,
         value,
+        parentBlock: blockStack[blockStack.length - 1],
       });
     } else if (isBlockOpening(reader.currentChar)) {
       const value = reader.getToken(start.index, reader.loc.index + 1);
@@ -244,6 +247,7 @@ const tokenizer = (filename: string): tokenBlock => {
         type: TOKEN_TYPE.SPECIAL,
         loc: start,
         value,
+        parentBlock: blockStack[blockStack.length - 1],
       });
     } else if (isWord(reader.currentChar)) {
       reader.advanceToEndOf(isWord);
@@ -252,6 +256,7 @@ const tokenizer = (filename: string): tokenBlock => {
         type: TOKEN_TYPE.WORD,
         loc: start,
         value,
+        parentBlock: blockStack[blockStack.length - 1],
       });
     }
 
