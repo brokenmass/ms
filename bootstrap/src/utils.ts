@@ -1,14 +1,15 @@
 import { loc } from './tokenizer';
 import * as util from 'util';
+export const locToString = (loc: loc): string =>
+  `${loc.file}:${loc.line + 1}:${loc.col + 1}`;
+
 export const compileError = (
   item: {
     loc: loc;
   },
   error: string,
 ) => {
-  const errorMessage = `${item.loc.file}:${item.loc.line + 1}:${
-    item.loc.col + 1
-  }: ${error}`;
+  const errorMessage = `${locToString(item.loc)}: ${error}`;
   console.error(errorMessage);
   throw new Error(errorMessage);
 };

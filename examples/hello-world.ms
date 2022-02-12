@@ -1,2 +1,2 @@
 // test comment
-print("Hello, world")
+print("Hello, world\n")

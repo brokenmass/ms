@@ -115,6 +115,8 @@ const blockTypesChars = {
   ']': BLOCK_TYPE.SQUARE,
 };
 
+const isEscape: charTypeChecker = (text: string, index = 0) =>
+  text[index] === '\\' && !isEscape(text, index - 1);
 const isEOL: charTypeChecker = (text: string, index = 0) =>
   '\n'.includes(text[index]);
 const isNotEmpty: charTypeChecker = (text: string, index = 0) =>
@@ -128,9 +130,10 @@ const isBlockClosing: charTypeChecker = (text: string, index = 0) =>
 const isNumber: charTypeChecker = (text: string, index = 0) =>
   NUMBER_CHARS.includes(text[index]);
 const isEdgeOfString: charTypeChecker = (text: string, index = 0) =>
-  text[index] == '"' && text[index - 1] !== '\\';
+  text[index] == '"' && !isEscape(text, index - 1);
 const isWord: charTypeChecker = (text: string, index = 0) =>
   isNotEmpty(text, index) &&
+  !isEscape(text, index) &&
   !isSpecial(text, index) &&
   !isBlockOpening(text, index) &&
   !isBlockClosing(text, index) &&
@@ -152,6 +155,26 @@ const printTokenized = (tokenizedFile: tokenBlock) => {
     });
   };
   innerPrint(tokenizedFile);
+};
+
+const escapeString = (str: string): string => {
+  const mapping = {
+    n: '\n',
+    '\\': '\\',
+    r: '\r',
+    t: '\t',
+  };
+  let out = '';
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === '\\' && mapping[str[i + 1]]) {
+      out += mapping[str[i + 1]];
+      i++;
+    } else {
+      out += str[i];
+    }
+  }
+
+  return out;
 };
 
 const tokenizer = (filename: string): tokenBlock => {
@@ -180,7 +203,9 @@ const tokenizer = (filename: string): tokenBlock => {
     } else if (isEdgeOfString(reader.currentChar)) {
       reader.advanceByOne();
       reader.advanceTo(isEdgeOfString);
-      const value = reader.getToken(start.index + 1, reader.loc.index);
+      const value = escapeString(
+        reader.getToken(start.index + 1, reader.loc.index),
+      );
       currentBlock.contents.push({
         type: TOKEN_TYPE.STRING,
         loc: start,
@@ -210,7 +235,6 @@ const tokenizer = (filename: string): tokenBlock => {
       if (currentBlock.blockType !== blockType) {
         return compileError(currentBlock, 'Block not correctly closed');
       } else {
-        // close current block
         blockStack.pop();
       }
     } else if (isSpecial(reader.currentChar)) {

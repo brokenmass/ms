@@ -3,9 +3,16 @@ import print from './print';
 import sum from './sum';
 
 export type functionDescriptor = {
+  used: boolean;
   inputs: VALUE_TYPE[];
   output: VALUE_TYPE;
-  code: any;
+  code: {
+    asm_x86_64: {
+      header?: (print: (input: string) => void) => void;
+      call?: (print: (input: string) => void) => void;
+      footer?: (print: (input: string) => void) => void;
+    };
+  };
 };
 export type functionList = {
   [key: string]: functionDescriptor[];

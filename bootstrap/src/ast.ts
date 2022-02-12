@@ -64,6 +64,7 @@ export type FUNCTION_CALL_OP = {
 
 export type IMMEDIATE_OP = {
   opType: OP_TYPES.IMMEDIATE;
+  name: string;
   loc: loc;
   valueType: VALUE_TYPE;
   value: string;
@@ -123,6 +124,7 @@ const parseNextOP = (
   } else if (item.type === TOKEN_TYPE.NUMBER) {
     return {
       opType: OP_TYPES.IMMEDIATE,
+      name: item.value,
       loc: item.loc,
       valueType: VALUE_TYPE.INT64,
       value: item.value,
@@ -130,6 +132,7 @@ const parseNextOP = (
   } else if (item.type === TOKEN_TYPE.STRING) {
     return {
       opType: OP_TYPES.IMMEDIATE,
+      name: item.value,
       loc: item.loc,
       valueType: VALUE_TYPE.STRING,
       value: item.value,

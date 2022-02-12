@@ -1,13 +1,14 @@
+import { functionDescriptor } from '.';
 import { VALUE_TYPE } from '../coreTypes';
 
-export default [
+const sum: functionDescriptor[] = [
   {
-    inputsCount: 2,
+    used: false,
     inputs: [VALUE_TYPE.INT64, VALUE_TYPE.INT64],
     output: VALUE_TYPE.INT64,
     code: {
-      fasm_x86_64: {
-        code: (println) => {
+      asm_x86_64: {
+        call: (println) => {
           println('pop rax');
           println('pop rbx');
           println('add rax, rbx');
@@ -17,3 +18,5 @@ export default [
     },
   },
 ];
+
+export default sum;

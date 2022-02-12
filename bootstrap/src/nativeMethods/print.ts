@@ -1,14 +1,15 @@
+import { functionDescriptor } from '.';
 import { VALUE_TYPE } from '../coreTypes';
 
-export default [
+const print: functionDescriptor[] = [
   {
+    used: false,
     inputs: [VALUE_TYPE.INT64],
     output: null,
     code: {
       asm_x86_64: {
         header: (println) => {
           println('print:');
-          println('pop rdi');
           println('mov r9, -3689348814741910323');
           println('sub rsp, 40');
           println('mov BYTE [rsp+31], 10');
@@ -44,26 +45,29 @@ export default [
         },
         call: (println) => {
           println('pop rdi');
-          println('pop rbx');
-          println('add rax, rbx');
-          println('push rax');
+          println('call print');
         },
       },
     },
   },
   {
+    used: false,
     inputs: [VALUE_TYPE.STRING],
     output: null,
     code: {
       asm_x86_64: {
         call: (println) => {
-          println('pop rdi');
+          println('pop rax');
+          println('mov rdx, [rax]');
+          println('add rax, 8');
+          println('mov rsi, rax');
+          println('mov rdi, 1');
           println('mov rax, 1');
-          println('mov rbx');
-          println('add rax, rbx');
-          println('push rax');
+          println('syscall');
         },
       },
     },
   },
 ];
+
+export default print;
