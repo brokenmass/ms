@@ -29,7 +29,7 @@ export const generateASM = (ast: AST): string => {
   const innerGenerator = (ast: AST) => {
     ast.forEach((op) => {
       if (op.opType === OP_TYPES.IF) {
-        codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
         const ifEndLabel = getNextLabel();
         const elseEndLabel = getNextLabel();
 
@@ -49,7 +49,7 @@ export const generateASM = (ast: AST): string => {
         }
         codePrintLn(elseEndLabel + ':');
       } else if (op.opType === OP_TYPES.WHILE) {
-        codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
         const whileConditionLabel = getNextLabel();
         const whileEndLabel = getNextLabel();
 
@@ -69,26 +69,26 @@ export const generateASM = (ast: AST): string => {
         if (op.function.code.asm_x86_64.header && !op.function.used) {
           op.function.code.asm_x86_64.header(headerPrintLn, getNextLabel);
         }
-        codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
         op.function.code.asm_x86_64.call(codePrintLn, getNextLabel);
         op.function.used = true;
       } else if (op.opType === OP_TYPES.IMMEDIATE) {
         if (op.valueType === VALUE_TYPE.STRING) {
           const strLabel = `str_${stringsCounter++}`;
-          codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+          codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
           codePrintLn(`push ${strLabel}`);
           const bytes = [...Buffer.from(op.value)];
           dataPrintLn(`${strLabel}:`);
           dataPrintLn('dq ' + bytes.length);
           dataPrintLn('db ' + bytes.join(', '));
         } else if (op.valueType === VALUE_TYPE.INT64) {
-          codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+          codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
           codePrintLn(`push ${op.value}`);
         }
       } else if (op.opType === OP_TYPES.DECLARATION) {
         const varLabel = `var_${varCounter++}`;
         innerGenerator(op.value);
-        codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
         codePrintLn(`pop rbx`);
         codePrintLn(`mov [${varLabel}], rbx`);
         dataPrintLn(`${varLabel}:`);
@@ -97,7 +97,7 @@ export const generateASM = (ast: AST): string => {
         op.label = varLabel;
       } else if (op.opType === OP_TYPES.USAGE) {
         const varLabel = op.declaration.label;
-        codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
         codePrintLn(`mov rax, ${varLabel}`);
         codePrintLn(`xor rbx, rbx`);
         codePrintLn(`mov rbx, [rax]`);
@@ -105,7 +105,7 @@ export const generateASM = (ast: AST): string => {
       } else if (op.opType === OP_TYPES.ASSIGNMENT) {
         const varLabel = op.declaration.label;
         innerGenerator(op.value);
-        codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
         codePrintLn(`pop rbx`);
         codePrintLn(`mov [${varLabel}], rbx`);
       }
@@ -117,14 +117,14 @@ export const generateASM = (ast: AST): string => {
   const text = [
     'format ELF64 executable 3',
     'segment readable executable',
-    ';; -- Header --',
+    '; -- Header --',
     ...header,
-    ';; -- Main --',
+    '; -- Main --',
     'entry start',
     'start:',
     ...code,
     ...defaultExit,
-    ';; -- Data --',
+    '; -- Data --',
     'segment readable writable',
     ...data,
   ].join('\n');
