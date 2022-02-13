@@ -5,6 +5,9 @@
   "engines": {
     "node": ">= 16.13 <17"
   },
+  "scripts": {
+    "clean": "find ../examples -type f ! -name '*.ms' -delete"
+  },
   "devDependencies": {
     "@types/jest": "^27.4.0",
     "@types/node": "^16.11.6",

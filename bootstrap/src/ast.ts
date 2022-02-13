@@ -1,5 +1,5 @@
-import { BLOCK_TYPE, loc, token, tokenBlock, TOKEN_TYPE } from './tokenizer';
-import { compileError, inspect } from './utils';
+import { BLOCK_TYPE, loc, tokenBlock, TOKEN_TYPE, token } from './tokenizer';
+import { compileError, inspect, locToString } from './utils';
 import nativeMethods, { functionDescriptor } from './nativeMethods';
 import { VALUE_TYPE } from './coreTypes';
 import config from './config';
@@ -27,7 +27,12 @@ export enum CONTROL_FLOW_KEYWORDS {
   ELSE = 'else',
   WHILE = 'while',
 }
+const declarationTypeStringMap = Object.entries(DECLARATION_KEYWORDS).reduce(
+  (ret, [k, v]) => ((ret[v] = k), ret),
+  {},
+);
 
+console.log(declarationTypeStringMap);
 const reservedWords = [
   ...Object.keys(VALUE_TYPE),
   ...Object.keys(DECLARATION_KEYWORDS),
@@ -43,6 +48,7 @@ export type DECLARATION_OP = {
   loc: loc;
   valueType: VALUE_TYPE;
   value: OP;
+  label?: string;
 };
 
 export type ASSIGNMENT_OP = {
@@ -101,50 +107,88 @@ export type OP =
 
 export type AST = OP[];
 export const generateAST = (tokenizedFile: tokenBlock): AST => {
-  const ast = parseBlock(tokenizedFile);
+  const parsed = new Parser(tokenizedFile);
 
   if (config.debugAST) {
-    inspect(ast);
+    inspect(parsed.ast);
   }
 
-  return ast;
+  return parsed.ast;
 };
 
-const parseBlock = (block: tokenBlock): AST => {
-  const ops: AST = [];
+type scope = {
+  [key: string]: DECLARATION_OP;
+};
 
-  while (block.contents.length) {
-    ops.push(parseNextOP(block.contents));
+class Parser {
+  tokenizedFile: tokenBlock;
+  ast: AST;
 
-    if (block.blockType === BLOCK_TYPE.ROUND && block.contents.length > 0) {
-      if (
-        block.contents[0].type !== TOKEN_TYPE.SPECIAL ||
-        block.contents[0].value !== SPECIAL_CHARS.COMMA
-      ) {
-        return compileError(block.contents[0], 'Unexpected instruction');
-      } else if (block.contents.length === 1) {
-        return compileError(block.contents[0], 'Unexpected trailing comma');
-      } else {
-        block.contents.shift();
+  blockStack: tokenBlock[] = [];
+  currentBlock: tokenBlock;
+
+  scopeStack: scope[] = [{}];
+
+  constructor(tokenizedFile: tokenBlock) {
+    this.tokenizedFile = tokenizedFile;
+    this.ast = this.parseBlock(tokenizedFile);
+  }
+
+  parseBlock = (block: tokenBlock): AST => {
+    this.blockStack.push(block);
+    this.currentBlock = block;
+    const ops: AST = [];
+
+    while (block.contents.length) {
+      ops.push(this.parseNextOP());
+
+      if (block.blockType === BLOCK_TYPE.ROUND && block.contents.length > 0) {
+        if (
+          block.contents[0].type !== TOKEN_TYPE.SPECIAL ||
+          block.contents[0].value !== SPECIAL_CHARS.COMMA
+        ) {
+          return compileError(block.contents[0], 'Unexpected instruction');
+        } else if (block.contents.length === 1) {
+          return compileError(block.contents[0], 'Unexpected trailing comma');
+        } else {
+          block.contents.shift();
+        }
       }
     }
-  }
 
-  return ops;
-};
+    this.blockStack.pop();
+    this.currentBlock = this.blockStack[this.blockStack.length - 1];
+    return ops;
+  };
 
-const parseNextOP = (
-  items: (tokenBlock | token)[],
-  { isLH = true } = {},
-): OP => {
-  const item = items.shift();
+  nextToken = () => this.currentBlock.contents.shift();
 
-  if (item.type === TOKEN_TYPE.BLOCK) {
-    return compileError(
-      item,
-      'A block cannot contain another unassociated block',
-    );
-  } else if (item.type === TOKEN_TYPE.NUMBER) {
+  parseNextOP = ({ isLH = true } = {}): OP => {
+    const item = this.nextToken();
+
+    if (item.type === TOKEN_TYPE.BLOCK) {
+      return compileError(
+        item,
+        'A block cannot contain another unassociated block',
+      );
+    }
+
+    let out: OP;
+
+    if ((out = this.parseNumber(item))) return out;
+    if ((out = this.parseString(item))) return out;
+    if ((out = this.parseDeclaration(item, { isLH }))) return out;
+    if ((out = this.parseFunctionCall(item))) return out;
+    if ((out = this.parseIf(item, { isLH }))) return out;
+
+    return compileError(item, `Could not parse token ${item.value}`);
+  };
+
+  parseNumber = (item: token): OP => {
+    if (item.type !== TOKEN_TYPE.NUMBER) {
+      return null;
+    }
+
     return {
       opType: OP_TYPES.IMMEDIATE,
       name: item.value,
@@ -152,7 +196,13 @@ const parseNextOP = (
       valueType: VALUE_TYPE.INT64,
       value: item.value,
     };
-  } else if (item.type === TOKEN_TYPE.STRING) {
+  };
+
+  parseString = (item: token): OP => {
+    if (item.type !== TOKEN_TYPE.STRING) {
+      return null;
+    }
+
     return {
       opType: OP_TYPES.IMMEDIATE,
       name: item.value,
@@ -160,134 +210,15 @@ const parseNextOP = (
       valueType: VALUE_TYPE.STRING,
       value: item.value,
     };
-  } else if (Object.keys(DECLARATION_KEYWORDS).includes(item.value)) {
-    if (!isLH) {
-      return compileError(
-        item,
-        `Assignments cannot appear on the right side of another assignment`,
-      );
+  };
+
+  parseFunctionCall = (item: token): OP => {
+    if (item.type !== TOKEN_TYPE.WORD || !nativeMethods[item.value]) {
+      return null;
     }
 
-    const nameToken = items.shift();
-    if (nameToken.type !== TOKEN_TYPE.WORD) {
-      return compileError(item, `Missing variable name`);
-    }
-    if (reservedWords.includes(nameToken.value)) {
-      return compileError(
-        nameToken,
-        `Variable name "${nameToken.value}" must be alphanumerical`,
-      );
-    }
-
-    const assignmentToken = items.shift();
-    if (
-      assignmentToken.type !== TOKEN_TYPE.SPECIAL ||
-      assignmentToken.value !== '='
-    ) {
-      return compileError(
-        item,
-        `Variable "${nameToken.value}" must be assigned using '='`,
-      );
-    }
-
-    const declarationTypeStringMap = {
-      var: DECLARATION_KEYWORDS.VAR,
-      const: DECLARATION_KEYWORDS.CONST,
-    };
-
-    const assignedValue = parseNextOP(items, {
-      isLH: false,
-    });
-    return {
-      opType: OP_TYPES.DECLARATION,
-      declarationType: declarationTypeStringMap[item.value],
-      isLH: true,
-      name: nameToken.value,
-      loc: item.loc,
-      valueType: assignedValue.valueType,
-      value: assignedValue,
-    };
-  } else if (item.value === CONTROL_FLOW_KEYWORDS.IF) {
-    if (!isLH) {
-      return compileError(
-        item,
-        `${OP_TYPES.IF} instructions cannot appear on the right side of an assignment`,
-      );
-    }
-
-    if (
-      item.parentBlock.blockType === BLOCK_TYPE.ROUND ||
-      item.parentBlock.blockType === BLOCK_TYPE.SQUARE
-    ) {
-      return compileError(
-        item,
-        `Cannot use if/else inside ${item.parentBlock.blockType} blocks`,
-      );
-    }
-    const conditionBlock = items.shift();
-    if (
-      conditionBlock.type !== TOKEN_TYPE.BLOCK ||
-      conditionBlock.blockType !== BLOCK_TYPE.ROUND
-    ) {
-      return compileError(item, 'Missing if condition');
-    }
-
-    const condition = parseBlock(conditionBlock);
-    if (condition.length > 1) {
-      return compileError(
-        condition[1],
-        'condition block cannot contain more than a condition',
-      );
-    }
-    let ifBody: AST;
-    if (items[0].type === TOKEN_TYPE.BLOCK) {
-      const ifBodyBlock = items.shift() as tokenBlock;
-      if (ifBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
-        return compileError(
-          ifBodyBlock,
-          `Only ${BLOCK_TYPE.CURLY} blocks are allowed after an if condition`,
-        );
-      }
-      ifBody = parseBlock(ifBodyBlock);
-    } else {
-      ifBody = [parseNextOP(items)];
-    }
-
-    let elseBody: AST;
-    if (
-      items[0].type === TOKEN_TYPE.WORD &&
-      items[0].value === CONTROL_FLOW_KEYWORDS.ELSE
-    ) {
-      items.shift();
-
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      if (items[0].type === TOKEN_TYPE.BLOCK) {
-        const elseBodyBlock = items.shift() as tokenBlock;
-        if (elseBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
-          return compileError(
-            elseBodyBlock,
-            `Only ${BLOCK_TYPE.CURLY} blocks are allowed after an if condition`,
-          );
-        }
-        elseBody = parseBlock(elseBodyBlock);
-      } else {
-        elseBody = [parseNextOP(items)];
-      }
-    }
-
-    return {
-      opType: OP_TYPES.IF,
-      condition,
-      name: item.value,
-      loc: item.loc,
-      ifBody,
-      elseBody,
-      valueType: VALUE_TYPE.VOID,
-    };
-  } else if (nativeMethods[item.value]) {
     const methods = nativeMethods[item.value];
-    const parametersBlock = items.shift();
+    const parametersBlock = this.nextToken();
     if (
       parametersBlock.type !== TOKEN_TYPE.BLOCK ||
       parametersBlock.blockType !== BLOCK_TYPE.ROUND
@@ -295,7 +226,7 @@ const parseNextOP = (
       return compileError(item, 'Missing parameters');
     }
 
-    const parameters = parseBlock(parametersBlock);
+    const parameters = this.parseBlock(parametersBlock);
 
     const parametersTypes = parameters
       .map((param) => param.valueType)
@@ -321,10 +252,161 @@ const parseNextOP = (
       parameters: parameters,
       valueType: matchingMethod.output,
     };
-  } else {
-    return compileError(
-      item,
-      `Could not parse token ${item.value}- Compiler error`,
-    );
-  }
-};
+  };
+
+  parseDeclaration = (item: token, { isLH = true } = {}): OP => {
+    if (
+      item.type !== TOKEN_TYPE.WORD ||
+      !Object.keys(declarationTypeStringMap).includes(item.value)
+    ) {
+      return null;
+    }
+
+    if (!isLH) {
+      return compileError(
+        item,
+        `Assignments cannot appear on the right side of another assignment`,
+      );
+    }
+
+    const nameToken = this.nextToken();
+    if (nameToken.type !== TOKEN_TYPE.WORD) {
+      return compileError(item, `Missing variable name`);
+    }
+    if (reservedWords.includes(nameToken.value)) {
+      return compileError(
+        nameToken,
+        `Variable name "${nameToken.value}" must be alphanumerical`,
+      );
+    }
+    const existing = this.findVariableDeclarationInScope(nameToken.value);
+    if (existing) {
+      return compileError(
+        nameToken,
+        `Variable name "${
+          nameToken.value
+        }" has already been defined ${locToString(existing.loc)}`,
+      );
+    }
+
+    const assignmentToken = this.nextToken();
+    if (
+      assignmentToken.type !== TOKEN_TYPE.SPECIAL ||
+      assignmentToken.value !== '='
+    ) {
+      console.log(assignmentToken);
+      return compileError(
+        item,
+        `Variable "${nameToken.value}" must be assigned using '='`,
+      );
+    }
+
+    const assignedValue = this.parseNextOP({
+      isLH: false,
+    });
+
+    return {
+      opType: OP_TYPES.DECLARATION,
+      declarationType: declarationTypeStringMap[item.value],
+      isLH: true,
+      name: nameToken.value,
+      loc: item.loc,
+      valueType: assignedValue.valueType,
+      value: assignedValue,
+    };
+  };
+
+  parseIf = (item: token, { isLH = true } = {}): OP => {
+    if (
+      item.type !== TOKEN_TYPE.WORD ||
+      item.value !== CONTROL_FLOW_KEYWORDS.IF
+    ) {
+      return null;
+    }
+
+    if (!isLH) {
+      return compileError(
+        item,
+        `${OP_TYPES.IF} instructions cannot appear on the right side of an assignment`,
+      );
+    }
+
+    if (
+      item.parentBlock.blockType === BLOCK_TYPE.ROUND ||
+      item.parentBlock.blockType === BLOCK_TYPE.SQUARE
+    ) {
+      return compileError(
+        item,
+        `Cannot use if/else inside ${item.parentBlock.blockType} blocks`,
+      );
+    }
+    const conditionBlock = this.nextToken();
+    if (
+      conditionBlock.type !== TOKEN_TYPE.BLOCK ||
+      conditionBlock.blockType !== BLOCK_TYPE.ROUND
+    ) {
+      return compileError(item, 'Missing if condition');
+    }
+
+    const condition = this.parseBlock(conditionBlock);
+    if (condition.length > 1) {
+      return compileError(
+        condition[1],
+        'condition block cannot contain more than a condition',
+      );
+    }
+    let ifBody: AST;
+    let nextToken = this.currentBlock.contents[0];
+
+    if (nextToken.type === TOKEN_TYPE.BLOCK) {
+      const ifBodyBlock = this.nextToken() as tokenBlock;
+      if (ifBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
+        return compileError(
+          ifBodyBlock,
+          `Only ${BLOCK_TYPE.CURLY} blocks are allowed after an if condition`,
+        );
+      }
+      ifBody = this.parseBlock(ifBodyBlock);
+    } else {
+      ifBody = [this.parseNextOP()];
+    }
+
+    let elseBody: AST;
+    nextToken = this.currentBlock.contents[0];
+    if (
+      nextToken.type === TOKEN_TYPE.WORD &&
+      nextToken.value === CONTROL_FLOW_KEYWORDS.ELSE
+    ) {
+      this.nextToken();
+      nextToken = this.currentBlock.contents[0];
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      if (nextToken.type === TOKEN_TYPE.BLOCK) {
+        const elseBodyBlock = this.nextToken() as tokenBlock;
+        if (elseBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
+          return compileError(
+            elseBodyBlock,
+            `Only ${BLOCK_TYPE.CURLY} blocks are allowed after an if condition`,
+          );
+        }
+        elseBody = this.parseBlock(elseBodyBlock);
+      } else {
+        elseBody = [this.parseNextOP()];
+      }
+    }
+
+    return {
+      opType: OP_TYPES.IF,
+      condition,
+      name: item.value,
+      loc: item.loc,
+      ifBody,
+      elseBody,
+      valueType: VALUE_TYPE.VOID,
+    };
+  };
+
+  findVariableDeclarationInScope = (name: string): DECLARATION_OP => {
+    return this.scopeStack.find((scope) => scope[name])?.[name];
+  };
+}

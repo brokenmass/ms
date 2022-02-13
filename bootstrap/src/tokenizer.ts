@@ -3,11 +3,14 @@ import config from './config';
 import { compileError } from './utils';
 
 const EMPTY_CHARS = ' \r\n';
-const SPECIAL_CHARS = '|.,;';
+// const SPECIAL_CHARS = '|.,;';
+
 const BLOCK_OPENING_CHARS = '([{';
 const BLOCK_CLOSING_CHARS = ')]}';
+const ALPHABET = 'abcdefghijklmnopqrstuvwxyz';
 const NUMBER_CHARS = '01234567890';
-
+const NON_SPECIAL_CHARS =
+  ALPHABET + ALPHABET.toUpperCase() + NUMBER_CHARS + EMPTY_CHARS;
 export enum BLOCK_TYPE {
   FILE = 'file',
   CURLY = '{}',
@@ -31,7 +34,7 @@ export type loc = {
   index: number;
 };
 
-export type token = {
+export type tokenElement = {
   type: Exclude<TOKEN_TYPE, TOKEN_TYPE.BLOCK>;
   value: string;
   loc: loc;
@@ -40,10 +43,11 @@ export type token = {
 export type tokenBlock = {
   type: TOKEN_TYPE.BLOCK;
   blockType: BLOCK_TYPE;
-  contents: (tokenBlock | token)[];
+  contents: token[];
   loc: loc;
 };
 
+export type token = tokenElement | tokenBlock;
 class FileReader {
   loc: loc;
   text: string;
@@ -123,7 +127,7 @@ const isEOL: charTypeChecker = (text: string, index = 0) =>
 const isNotEmpty: charTypeChecker = (text: string, index = 0) =>
   !EMPTY_CHARS.includes(text[index]);
 const isSpecial: charTypeChecker = (text: string, index = 0) =>
-  SPECIAL_CHARS.includes(text[index]);
+  !NON_SPECIAL_CHARS.includes(text[index]);
 const isBlockOpening: charTypeChecker = (text: string, index = 0) =>
   BLOCK_OPENING_CHARS.includes(text[index]);
 const isBlockClosing: charTypeChecker = (text: string, index = 0) =>
