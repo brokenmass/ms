@@ -13,6 +13,7 @@ const format = (str: string): string => {
 
 export const generateASM = (ast: AST): string => {
   let stringsCounter = 0;
+  let varCounter = 0;
   let labelCounter = 0;
   const header = [];
   const code = [];
@@ -58,17 +59,34 @@ export const generateASM = (ast: AST): string => {
         op.function.used = true;
       } else if (op.opType === OP_TYPES.IMMEDIATE) {
         if (op.valueType === VALUE_TYPE.STRING) {
+          const strLabel = `str_${stringsCounter++}`;
           codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
-          codePrintLn(`push str_${stringsCounter}`);
+          codePrintLn(`push ${strLabel}`);
           const bytes = [...Buffer.from(op.value)];
-          dataPrintLn(`str_${stringsCounter}:`);
+          dataPrintLn(`${strLabel}:`);
           dataPrintLn('dq ' + bytes.length);
           dataPrintLn('db ' + bytes.join(', '));
-          stringsCounter++;
         } else if (op.valueType === VALUE_TYPE.INT64) {
           codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
           codePrintLn(`push ${op.value}`);
         }
+      } else if (op.opType === OP_TYPES.DECLARATION) {
+        const varLabel = `var_${varCounter++}`;
+        innerGenerator(op.value);
+        codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`pop rbx`);
+        codePrintLn(`mov [${varLabel}], rbx`);
+        dataPrintLn(`${varLabel}:`);
+        dataPrintLn(`rq 1`);
+
+        op.label = varLabel;
+      } else if (op.opType === OP_TYPES.USAGE) {
+        const varLabel = op.declaration.label;
+        codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`mov rax, ${varLabel}`);
+        codePrintLn(`xor rbx, rbx`);
+        codePrintLn(`mov rbx, [rax]`);
+        codePrintLn(`push rbx`);
       }
     });
   };

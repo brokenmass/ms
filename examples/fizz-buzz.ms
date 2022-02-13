@@ -9,5 +9,5 @@ while(lt(i, 100)) {
   } else  {
     print (i)
   }
-  ++(i)
+  i = sum(i, 1)
 }

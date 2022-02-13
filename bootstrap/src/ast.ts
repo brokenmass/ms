@@ -6,6 +6,7 @@ import config from './config';
 export enum OP_TYPES {
   DECLARATION = 'declaration',
   ASSIGNMENT = 'assignment',
+  USAGE = 'usage',
   FUNCTION_CALL = 'functionCall',
   IF = 'if',
   WHILE = 'while',
@@ -47,7 +48,7 @@ export type DECLARATION_OP = {
   name: string;
   loc: loc;
   valueType: VALUE_TYPE;
-  value: OP;
+  value: AST;
   label?: string;
 };
 
@@ -57,7 +58,16 @@ export type ASSIGNMENT_OP = {
   isLH: boolean;
   loc: loc;
   valueType: VALUE_TYPE;
-  value: OP;
+  value: AST;
+};
+
+export type USAGE_OP = {
+  opType: OP_TYPES.USAGE;
+  declaration: DECLARATION_OP;
+  isLH: boolean;
+  name: string;
+  loc: loc;
+  valueType: VALUE_TYPE;
 };
 
 export type FUNCTION_CALL_OP = {
@@ -100,6 +110,7 @@ export type CONTROL_FLOW_WHILE_OP = {
 export type OP =
   | DECLARATION_OP
   | ASSIGNMENT_OP
+  | USAGE_OP
   | FUNCTION_CALL_OP
   | IMMEDIATE_OP
   | CONTROL_FLOW_IF_OP
@@ -125,9 +136,14 @@ class Parser {
   ast: AST;
 
   blockStack: tokenBlock[] = [];
-  currentBlock: tokenBlock;
+  get currentBlock() {
+    return this.blockStack[this.blockStack.length - 1];
+  }
 
   scopeStack: scope[] = [{}];
+  get currentScope() {
+    return this.scopeStack[this.scopeStack.length - 1];
+  }
 
   constructor(tokenizedFile: tokenBlock) {
     this.tokenizedFile = tokenizedFile;
@@ -136,7 +152,6 @@ class Parser {
 
   parseBlock = (block: tokenBlock): AST => {
     this.blockStack.push(block);
-    this.currentBlock = block;
     const ops: AST = [];
 
     while (block.contents.length) {
@@ -157,7 +172,6 @@ class Parser {
     }
 
     this.blockStack.pop();
-    this.currentBlock = this.blockStack[this.blockStack.length - 1];
     return ops;
   };
 
@@ -178,13 +192,14 @@ class Parser {
     if ((out = this.parseNumber(item))) return out;
     if ((out = this.parseString(item))) return out;
     if ((out = this.parseDeclaration(item, { isLH }))) return out;
+    if ((out = this.parseUsage(item, { isLH }))) return out;
     if ((out = this.parseFunctionCall(item))) return out;
     if ((out = this.parseIf(item, { isLH }))) return out;
 
     return compileError(item, `Could not parse token ${item.value}`);
   };
 
-  parseNumber = (item: token): OP => {
+  parseNumber = (item: token): IMMEDIATE_OP => {
     if (item.type !== TOKEN_TYPE.NUMBER) {
       return null;
     }
@@ -198,7 +213,7 @@ class Parser {
     };
   };
 
-  parseString = (item: token): OP => {
+  parseString = (item: token): IMMEDIATE_OP => {
     if (item.type !== TOKEN_TYPE.STRING) {
       return null;
     }
@@ -212,7 +227,7 @@ class Parser {
     };
   };
 
-  parseFunctionCall = (item: token): OP => {
+  parseFunctionCall = (item: token): FUNCTION_CALL_OP => {
     if (item.type !== TOKEN_TYPE.WORD || !nativeMethods[item.value]) {
       return null;
     }
@@ -254,7 +269,7 @@ class Parser {
     };
   };
 
-  parseDeclaration = (item: token, { isLH = true } = {}): OP => {
+  parseDeclaration = (item: token, { isLH = true } = {}): DECLARATION_OP => {
     if (
       item.type !== TOKEN_TYPE.WORD ||
       !Object.keys(declarationTypeStringMap).includes(item.value)
@@ -280,12 +295,13 @@ class Parser {
       );
     }
     const existing = this.findVariableDeclarationInScope(nameToken.value);
+    console.log(nameToken.value, this.scopeStack);
     if (existing) {
       return compileError(
         nameToken,
         `Variable name "${
           nameToken.value
-        }" has already been defined ${locToString(existing.loc)}`,
+        }" has already been defined at ${locToString(existing.loc)}`,
       );
     }
 
@@ -305,18 +321,44 @@ class Parser {
       isLH: false,
     });
 
-    return {
+    const op: DECLARATION_OP = {
       opType: OP_TYPES.DECLARATION,
       declarationType: declarationTypeStringMap[item.value],
       isLH: true,
       name: nameToken.value,
       loc: item.loc,
       valueType: assignedValue.valueType,
-      value: assignedValue,
+      value: [assignedValue],
     };
+
+    this.currentScope[op.name] = op;
+
+    return op;
   };
 
-  parseIf = (item: token, { isLH = true } = {}): OP => {
+  parseUsage = (item: token, { isLH = true } = {}): USAGE_OP => {
+    if (item.type !== TOKEN_TYPE.WORD) {
+      return null;
+    }
+
+    const variableDeclaration = this.findVariableDeclarationInScope(item.value);
+    if (!variableDeclaration) {
+      return null;
+    }
+
+    const op: USAGE_OP = {
+      opType: OP_TYPES.USAGE,
+      declaration: variableDeclaration,
+      name: item.value,
+      isLH: isLH,
+      loc: item.loc,
+      valueType: variableDeclaration.valueType,
+    };
+
+    return op;
+  };
+
+  parseIf = (item: token, { isLH = true } = {}): CONTROL_FLOW_IF_OP => {
     if (
       item.type !== TOKEN_TYPE.WORD ||
       item.value !== CONTROL_FLOW_KEYWORDS.IF
