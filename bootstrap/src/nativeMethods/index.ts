@@ -2,6 +2,7 @@ import { VALUE_TYPE } from '../coreTypes';
 import print from './print';
 import sum from './sum';
 import exit from './exit';
+import lt from './lt';
 
 export type codePrinter = (input: string) => void;
 export type labelGenerator = () => string;
@@ -29,6 +30,7 @@ const nativeMethods: functionList = {
   print,
   sum,
   exit,
+  lt,
 };
 
 export default nativeMethods;

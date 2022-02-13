@@ -32,7 +32,7 @@ const compile = (filename: string) => {
   const executableFile = './' + path.join(outdir, name);
 
   writeFileSync(asmFile, text);
-  execCommand('fasm', [asmFile, executableFile, '-m', '500000']); // -m 500000 ${executableFile}`);
+  execCommand('fasm', [asmFile, executableFile, '-m', '524288']); // -m 500000 ${executableFile}`);
 
   execCommand('chmod', ['+x', executableFile]);
 

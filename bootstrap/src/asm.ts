@@ -29,26 +29,41 @@ export const generateASM = (ast: AST): string => {
   const innerGenerator = (ast: AST) => {
     ast.forEach((op) => {
       if (op.opType === OP_TYPES.IF) {
-        console.log(op);
         codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
-        const endifLabel = getNextLabel();
-        const endElseLabel = getNextLabel();
+        const ifEndLabel = getNextLabel();
+        const elseEndLabel = getNextLabel();
 
         innerGenerator(op.condition);
 
         codePrintLn('pop rax');
         codePrintLn('test rax, rax');
-        codePrintLn('jz ' + endifLabel);
+        codePrintLn('jz ' + ifEndLabel);
 
         innerGenerator(op.ifBody);
         if (op.elseBody) {
-          codePrintLn('jmp ' + endElseLabel);
+          codePrintLn('jmp ' + elseEndLabel);
         }
-        codePrintLn(endifLabel + ':');
+        codePrintLn(ifEndLabel + ':');
         if (op.elseBody) {
           innerGenerator(op.elseBody);
         }
-        codePrintLn(endElseLabel + ':');
+        codePrintLn(elseEndLabel + ':');
+      } else if (op.opType === OP_TYPES.WHILE) {
+        codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+        const whileConditionLabel = getNextLabel();
+        const whileEndLabel = getNextLabel();
+
+        codePrintLn(whileConditionLabel + ':');
+
+        innerGenerator(op.condition);
+
+        codePrintLn('pop rax');
+        codePrintLn('test rax, rax');
+        codePrintLn('jz ' + whileEndLabel);
+
+        innerGenerator(op.body);
+        codePrintLn('jmp ' + whileConditionLabel);
+        codePrintLn(whileEndLabel + ':');
       } else if (op.opType === OP_TYPES.FUNCTION_CALL) {
         innerGenerator(op.parameters);
         if (op.function.code.asm_x86_64.header && !op.function.used) {
@@ -87,6 +102,12 @@ export const generateASM = (ast: AST): string => {
         codePrintLn(`xor rbx, rbx`);
         codePrintLn(`mov rbx, [rax]`);
         codePrintLn(`push rbx`);
+      } else if (op.opType === OP_TYPES.ASSIGNMENT) {
+        const varLabel = op.declaration.label;
+        innerGenerator(op.value);
+        codePrintLn(`;; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`pop rbx`);
+        codePrintLn(`mov [${varLabel}], rbx`);
       }
     });
   };

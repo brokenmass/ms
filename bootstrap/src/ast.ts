@@ -54,6 +54,7 @@ export type DECLARATION_OP = {
 
 export type ASSIGNMENT_OP = {
   opType: OP_TYPES.ASSIGNMENT;
+  declaration: DECLARATION_OP;
   name: string;
   isLH: boolean;
   loc: loc;
@@ -150,6 +151,8 @@ class Parser {
     this.ast = this.parseBlock(tokenizedFile);
   }
 
+  nextToken = () => this.currentBlock.contents.shift();
+
   parseBlock = (block: tokenBlock): AST => {
     this.blockStack.push(block);
     const ops: AST = [];
@@ -175,8 +178,6 @@ class Parser {
     return ops;
   };
 
-  nextToken = () => this.currentBlock.contents.shift();
-
   parseNextOP = ({ isLH = true } = {}): OP => {
     const item = this.nextToken();
 
@@ -193,8 +194,10 @@ class Parser {
     if ((out = this.parseString(item))) return out;
     if ((out = this.parseDeclaration(item, { isLH }))) return out;
     if ((out = this.parseUsage(item, { isLH }))) return out;
+    if ((out = this.parseAssignment(item, { isLH }))) return out;
     if ((out = this.parseFunctionCall(item))) return out;
     if ((out = this.parseIf(item, { isLH }))) return out;
+    if ((out = this.parseWhile(item, { isLH }))) return out;
 
     return compileError(item, `Could not parse token ${item.value}`);
   };
@@ -341,6 +344,18 @@ class Parser {
       return null;
     }
 
+    const nextToken = this.currentBlock.contents[0];
+    console.log(item, nextToken);
+    if (
+      nextToken &&
+      nextToken.type === TOKEN_TYPE.SPECIAL &&
+      nextToken.value === '='
+    ) {
+      // this is an assignment
+      return null;
+    }
+
+    console.log('aaaaa');
     const variableDeclaration = this.findVariableDeclarationInScope(item.value);
     if (!variableDeclaration) {
       return null;
@@ -353,6 +368,50 @@ class Parser {
       isLH: isLH,
       loc: item.loc,
       valueType: variableDeclaration.valueType,
+    };
+
+    return op;
+  };
+
+  parseAssignment = (item: token, { isLH = true } = {}): ASSIGNMENT_OP => {
+    if (item.type !== TOKEN_TYPE.WORD) {
+      return null;
+    }
+
+    console.log('bbbbb', item);
+    if (
+      this.currentBlock.contents[0].type !== TOKEN_TYPE.SPECIAL ||
+      this.currentBlock.contents[0].value !== '='
+    ) {
+      // this is an assignment
+      return null;
+    }
+    this.nextToken();
+    console.log('bbbbb');
+    const variableDeclaration = this.findVariableDeclarationInScope(item.value);
+    if (!variableDeclaration) {
+      return null;
+    }
+
+    const assignedValue = this.parseNextOP({
+      isLH: false,
+    });
+
+    if (assignedValue.valueType !== variableDeclaration.valueType) {
+      return compileError(
+        assignedValue,
+        `Cannot assign value of type "${assignedValue.valueType}" to variable of type ${variableDeclaration.valueType}`,
+      );
+    }
+
+    const op: ASSIGNMENT_OP = {
+      opType: OP_TYPES.ASSIGNMENT,
+      declaration: variableDeclaration,
+      isLH: isLH,
+      name: item.value,
+      loc: item.loc,
+      valueType: assignedValue.valueType,
+      value: [assignedValue],
     };
 
     return op;
@@ -444,6 +503,71 @@ class Parser {
       loc: item.loc,
       ifBody,
       elseBody,
+      valueType: VALUE_TYPE.VOID,
+    };
+  };
+
+  parseWhile = (item: token, { isLH = true } = {}): CONTROL_FLOW_WHILE_OP => {
+    if (
+      item.type !== TOKEN_TYPE.WORD ||
+      item.value !== CONTROL_FLOW_KEYWORDS.WHILE
+    ) {
+      return null;
+    }
+
+    if (!isLH) {
+      return compileError(
+        item,
+        `${OP_TYPES.WHILE} instructions cannot appear on the right side of an assignment`,
+      );
+    }
+
+    if (
+      item.parentBlock.blockType === BLOCK_TYPE.ROUND ||
+      item.parentBlock.blockType === BLOCK_TYPE.SQUARE
+    ) {
+      return compileError(
+        item,
+        `Cannot use while inside ${item.parentBlock.blockType} blocks`,
+      );
+    }
+    const conditionBlock = this.nextToken();
+    if (
+      conditionBlock.type !== TOKEN_TYPE.BLOCK ||
+      conditionBlock.blockType !== BLOCK_TYPE.ROUND
+    ) {
+      return compileError(item, 'Missing while condition');
+    }
+
+    const condition = this.parseBlock(conditionBlock);
+    if (condition.length > 1) {
+      return compileError(
+        condition[1],
+        'condition block cannot contain more than a condition',
+      );
+    }
+    let body: AST;
+    const nextToken = this.currentBlock.contents[0];
+
+    if (nextToken.type === TOKEN_TYPE.BLOCK) {
+      const bodyBlock = this.nextToken() as tokenBlock;
+      if (bodyBlock.blockType !== BLOCK_TYPE.CURLY) {
+        return compileError(
+          bodyBlock,
+          `Only ${BLOCK_TYPE.CURLY} blocks are allowed after a while condition`,
+        );
+      }
+      body = this.parseBlock(bodyBlock);
+    } else {
+      body = [this.parseNextOP()];
+    }
+
+    return {
+      opType: OP_TYPES.WHILE,
+      condition,
+      name: item.value,
+      loc: item.loc,
+      body,
       valueType: VALUE_TYPE.VOID,
     };
   };
