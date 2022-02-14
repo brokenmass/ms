@@ -1,5 +1,6 @@
 {
-  "name": "@ms/bootstrap",
+  "name": "rain-bootstrap",
+  "private": true,
   "version": "0.0.0",
   "description": "",
   "engines": {

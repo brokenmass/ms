@@ -1,8 +1,8 @@
-# MS
+# Rain
 
 **WORK IN PROGRESS**
 
-MS is my own functional language.
+Rain is my own functional language.
 The bootstrapping language is typescript :O
 
 ## Objectives
@@ -11,8 +11,8 @@ The bootstrapping language is typescript :O
 - [ ] [Turing-complete](./examples/rule110.ms)
 - [ ] Statically typed
 - [ ] [Self-hosted](<https://en.wikipedia.org/wiki/Self-hosting_(compilers)>)
+- [ ] Native automatic chaining ( function `g(f(a, b),c)` can be written as `a->f(b)->g(c)`)
 - [ ] Tree shaking (remove unused code)
-- [ ] Native automatic chaining ( function `f(a, b)` can be written as `a->f(type b)`)
 - [ ] Native partial method application
 - [ ] Optimized
 - [ ] Remove FASM dependency

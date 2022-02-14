@@ -23,13 +23,18 @@ const compile = (filename: string) => {
     process.exit(1);
   }
 
-  const text = generateASM(generateAST(tokenizer(filename)));
   const outdir = path.relative(process.cwd(), path.dirname(filename));
   const extension = path.extname(filename);
   const name = path.basename(filename, extension);
 
+  if (extension !== '.rain') {
+    console.error('file extansion must be ".rain"');
+  }
+
   const asmFile = './' + path.join(outdir, `${name}.asm`);
   const executableFile = './' + path.join(outdir, name);
+
+  const text = generateASM(generateAST(tokenizer(filename)));
 
   writeFileSync(asmFile, text);
   execCommand('fasm', [asmFile, executableFile, '-m', '524288']); // -m 500000 ${executableFile}`);
