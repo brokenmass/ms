@@ -5,7 +5,7 @@ const eq: functionDescriptor[] = [
   {
     used: false,
     inputs: [VALUE_TYPE.INT64, VALUE_TYPE.INT64],
-    output: VALUE_TYPE.INT64,
+    output: VALUE_TYPE.BOOL,
     code: {
       asm_x86_64: {
         call: (println) => {

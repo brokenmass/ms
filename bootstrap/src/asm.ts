@@ -11,6 +11,7 @@ const format = (str: string): string => {
   }
 };
 
+const escapeString = (str: string): string => str.replace(/\n/g, '\\n');
 export const generateASM = (ast: AST): string => {
   let stringsCounter = 0;
   let varCounter = 0;
@@ -29,7 +30,7 @@ export const generateASM = (ast: AST): string => {
   const innerGenerator = (ast: AST) => {
     ast.forEach((op) => {
       if (op.opType === OP_TYPES.IF) {
-        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
         const ifEndLabel = getNextLabel();
         const elseEndLabel = getNextLabel();
 
@@ -49,7 +50,7 @@ export const generateASM = (ast: AST): string => {
         }
         codePrintLn(elseEndLabel + ':');
       } else if (op.opType === OP_TYPES.WHILE) {
-        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
         const whileConditionLabel = getNextLabel();
         const whileEndLabel = getNextLabel();
 
@@ -69,45 +70,60 @@ export const generateASM = (ast: AST): string => {
         if (op.function.code.asm_x86_64.header && !op.function.used) {
           op.function.code.asm_x86_64.header(headerPrintLn, getNextLabel);
         }
-        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
+        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
         op.function.code.asm_x86_64.call(codePrintLn, getNextLabel);
         op.function.used = true;
       } else if (op.opType === OP_TYPES.IMMEDIATE) {
         if (op.valueType === VALUE_TYPE.STRING) {
           const strLabel = `str_${stringsCounter++}`;
-          codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
+          codePrintLn(
+            `; ${locToString(op.loc)}: [${op.opType}] "${escapeString(
+              op.name,
+            )}"`,
+          );
           codePrintLn(`push ${strLabel}`);
           const bytes = [...Buffer.from(op.value)];
           dataPrintLn(`${strLabel}:`);
           dataPrintLn('dq ' + bytes.length);
           dataPrintLn('db ' + bytes.join(', '));
         } else if (op.valueType === VALUE_TYPE.INT64) {
-          codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
+          codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
           codePrintLn(`push ${op.value}`);
         }
       } else if (op.opType === OP_TYPES.DECLARATION) {
         const varLabel = `var_${varCounter++}`;
         innerGenerator(op.value);
-        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
-        codePrintLn(`pop rbx`);
-        codePrintLn(`mov [${varLabel}], rbx`);
+        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
+        codePrintLn(`pop rax`);
+        codePrintLn(`mov [${varLabel}], rax`);
+
+        if (!op.isLH) {
+          codePrintLn(`push rax`);
+        }
+
         dataPrintLn(`${varLabel}:`);
         dataPrintLn(`rq 1`);
 
         op.label = varLabel;
       } else if (op.opType === OP_TYPES.USAGE) {
         const varLabel = op.declaration.label;
-        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
-        codePrintLn(`mov rax, ${varLabel}`);
-        codePrintLn(`xor rbx, rbx`);
-        codePrintLn(`mov rbx, [rax]`);
-        codePrintLn(`push rbx`);
+        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
+        codePrintLn(`xor rax, rax`);
+        codePrintLn(`mov rax, [${varLabel}]`);
+
+        if (!op.isLH) {
+          codePrintLn(`push rax`);
+        }
       } else if (op.opType === OP_TYPES.ASSIGNMENT) {
         const varLabel = op.declaration.label;
         innerGenerator(op.value);
-        codePrintLn(`; ${locToString(op.loc)}: ${op.name}`);
-        codePrintLn(`pop rbx`);
-        codePrintLn(`mov [${varLabel}], rbx`);
+        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
+        codePrintLn(`pop rax`);
+        codePrintLn(`mov [${varLabel}], rax`);
+
+        if (!op.isLH) {
+          codePrintLn(`push rax`);
+        }
       }
     });
   };

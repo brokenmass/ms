@@ -22,9 +22,10 @@ export enum TOKEN_TYPE {
   COMMENT = 'comment',
   NUMBER = 'number',
   STRING = 'string',
+  CHAR = 'char',
   WORD = 'word',
   SPECIAL = 'special',
-  BLOCK = 'char',
+  BLOCK = 'block',
 }
 
 export type loc = {
@@ -108,7 +109,25 @@ class FileReader {
     return this.loc.index >= this.text.length - 1;
   }
 }
+const unescapeString = (str: string): string => {
+  const mapping = {
+    n: '\n',
+    '\\': '\\',
+    r: '\r',
+    t: '\t',
+  };
+  let out = '';
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === '\\' && mapping[str[i + 1]]) {
+      out += mapping[str[i + 1]];
+      i++;
+    } else {
+      out += str[i];
+    }
+  }
 
+  return out;
+};
 type charTypeChecker = (text: string, index?: number) => boolean;
 
 const blockTypesChars = {
@@ -136,13 +155,16 @@ const isNumber: charTypeChecker = (text: string, index = 0) =>
   NUMBER_CHARS.includes(text[index]);
 const isEdgeOfString: charTypeChecker = (text: string, index = 0) =>
   text[index] == '"' && !isEscape(text, index - 1);
+const isEdgeOfChar: charTypeChecker = (text: string, index = 0) =>
+  text[index] == "'" && !isEscape(text, index - 1);
 const isWord: charTypeChecker = (text: string, index = 0) =>
   isNotEmpty(text, index) &&
   !isEscape(text, index) &&
   !isSpecial(text, index) &&
   !isBlockOpening(text, index) &&
   !isBlockClosing(text, index) &&
-  !isEdgeOfString(text, index);
+  !isEdgeOfString(text, index) &&
+  !isEdgeOfChar(text, index);
 
 const locToString = (loc: loc) => `${loc.file}:${loc.line + 1}:${loc.col + 1}`;
 
@@ -160,26 +182,6 @@ const printTokenized = (tokenizedFile: tokenBlock) => {
     });
   };
   innerPrint(tokenizedFile);
-};
-
-const escapeString = (str: string): string => {
-  const mapping = {
-    n: '\n',
-    '\\': '\\',
-    r: '\r',
-    t: '\t',
-  };
-  let out = '';
-  for (let i = 0; i < str.length; i++) {
-    if (str[i] === '\\' && mapping[str[i + 1]]) {
-      out += mapping[str[i + 1]];
-      i++;
-    } else {
-      out += str[i];
-    }
-  }
-
-  return out;
 };
 
 const tokenizer = (filename: string): tokenBlock => {
@@ -208,9 +210,28 @@ const tokenizer = (filename: string): tokenBlock => {
     } else if (isEdgeOfString(reader.currentChar)) {
       reader.advanceByOne();
       reader.advanceTo(isEdgeOfString);
-      const value = escapeString(
+      const value = unescapeString(
         reader.getToken(start.index + 1, reader.loc.index),
       );
+      currentBlock.contents.push({
+        type: TOKEN_TYPE.STRING,
+        loc: start,
+        value,
+        parentBlock: blockStack[blockStack.length - 1],
+      });
+    } else if (isEdgeOfChar(reader.currentChar)) {
+      reader.advanceByOne();
+      reader.advanceTo(isEdgeOfChar);
+      const value = unescapeString(
+        reader.getToken(start.index + 1, reader.loc.index),
+      );
+
+      if (value.length > 1) {
+        return compileError(
+          { loc: start },
+          'Chars can only be one character long',
+        );
+      }
       currentBlock.contents.push({
         type: TOKEN_TYPE.STRING,
         loc: start,

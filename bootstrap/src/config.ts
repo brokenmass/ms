@@ -1,5 +1,5 @@
 export default {
-  debugTokenizer: true,
+  debugTokenizer: false,
   debugAST: true,
-  debugASMCode: true,
+  debugASMCode: false,
 };

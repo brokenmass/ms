@@ -1,6 +1,6 @@
 import { VALUE_TYPE } from '../coreTypes';
 import print from './print';
-import sum from './sum';
+import add from './add';
 import exit from './exit';
 import eq from './eq';
 import lt from './lt';
@@ -30,7 +30,7 @@ export type functionList = {
 };
 const nativeMethods: functionList = {
   print,
-  sum,
+  add,
   exit,
   lt,
   eq,

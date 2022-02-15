@@ -19,7 +19,7 @@ export enum SPECIAL_CHARS {
 }
 
 export enum DECLARATION_KEYWORDS {
-  VAR = 'var',
+  LET = 'let',
   CONST = 'const',
 }
 
@@ -33,7 +33,6 @@ const declarationTypeStringMap = Object.entries(DECLARATION_KEYWORDS).reduce(
   {},
 );
 
-console.log(declarationTypeStringMap);
 const reservedWords = [
   ...Object.keys(VALUE_TYPE),
   ...Object.keys(DECLARATION_KEYWORDS),
@@ -158,7 +157,13 @@ class Parser {
     const ops: AST = [];
 
     while (block.contents.length) {
-      ops.push(this.parseNextOP());
+      ops.push(
+        this.parseNextOP({
+          isLH:
+            block.blockType === BLOCK_TYPE.CURLY ||
+            block.blockType === BLOCK_TYPE.FILE,
+        }),
+      );
 
       if (block.blockType === BLOCK_TYPE.ROUND && block.contents.length > 0) {
         if (
@@ -195,7 +200,7 @@ class Parser {
     if ((out = this.parseDeclaration(item, { isLH }))) return out;
     if ((out = this.parseUsage(item, { isLH }))) return out;
     if ((out = this.parseAssignment(item, { isLH }))) return out;
-    if ((out = this.parseFunctionCall(item))) return out;
+    if ((out = this.parseFunctionCall(item, { isLH }))) return out;
     if ((out = this.parseIf(item, { isLH }))) return out;
     if ((out = this.parseWhile(item, { isLH }))) return out;
 
@@ -230,7 +235,7 @@ class Parser {
     };
   };
 
-  parseFunctionCall = (item: token): FUNCTION_CALL_OP => {
+  parseFunctionCall = (item: token, { isLH = true } = {}): FUNCTION_CALL_OP => {
     if (item.type !== TOKEN_TYPE.WORD || !nativeMethods[item.value]) {
       return null;
     }
@@ -264,7 +269,7 @@ class Parser {
     return {
       opType: OP_TYPES.FUNCTION_CALL,
       function: matchingMethod,
-      isLH: true,
+      isLH: isLH,
       name: item.value,
       loc: item.loc,
       parameters: parameters,
@@ -280,13 +285,6 @@ class Parser {
       return null;
     }
 
-    if (!isLH) {
-      return compileError(
-        item,
-        `Assignments cannot appear on the right side of another assignment`,
-      );
-    }
-
     const nameToken = this.nextToken();
     if (nameToken.type !== TOKEN_TYPE.WORD) {
       return compileError(item, `Missing variable name`);
@@ -298,7 +296,7 @@ class Parser {
       );
     }
     const existing = this.findVariableDeclarationInScope(nameToken.value);
-    console.log(nameToken.value, this.scopeStack);
+
     if (existing) {
       return compileError(
         nameToken,
@@ -313,7 +311,6 @@ class Parser {
       assignmentToken.type !== TOKEN_TYPE.SPECIAL ||
       assignmentToken.value !== '='
     ) {
-      console.log(assignmentToken);
       return compileError(
         item,
         `Variable "${nameToken.value}" must be assigned using '='`,
@@ -327,7 +324,7 @@ class Parser {
     const op: DECLARATION_OP = {
       opType: OP_TYPES.DECLARATION,
       declarationType: declarationTypeStringMap[item.value],
-      isLH: true,
+      isLH,
       name: nameToken.value,
       loc: item.loc,
       valueType: assignedValue.valueType,
@@ -345,7 +342,6 @@ class Parser {
     }
 
     const nextToken = this.currentBlock.contents[0];
-    console.log(item, nextToken);
     if (
       nextToken &&
       nextToken.type === TOKEN_TYPE.SPECIAL &&
@@ -355,7 +351,6 @@ class Parser {
       return null;
     }
 
-    console.log('aaaaa');
     const variableDeclaration = this.findVariableDeclarationInScope(item.value);
     if (!variableDeclaration) {
       return null;
@@ -378,7 +373,6 @@ class Parser {
       return null;
     }
 
-    console.log('bbbbb', item);
     if (
       this.currentBlock.contents[0].type !== TOKEN_TYPE.SPECIAL ||
       this.currentBlock.contents[0].value !== '='
@@ -387,7 +381,6 @@ class Parser {
       return null;
     }
     this.nextToken();
-    console.log('bbbbb');
     const variableDeclaration = this.findVariableDeclarationInScope(item.value);
     if (!variableDeclaration) {
       return null;
@@ -456,6 +449,10 @@ class Parser {
         'condition block cannot contain more than a condition',
       );
     }
+    if (condition[0].valueType !== VALUE_TYPE.BOOL) {
+      return compileError(condition[0], 'condition must return a boolean');
+    }
+
     let ifBody: AST;
     let nextToken = this.currentBlock.contents[0];
 
@@ -545,6 +542,9 @@ class Parser {
         condition[1],
         'condition block cannot contain more than a condition',
       );
+    }
+    if (condition[0].valueType !== VALUE_TYPE.BOOL) {
+      return compileError(condition[0], 'condition must return a boolean');
     }
     let body: AST;
     const nextToken = this.currentBlock.contents[0];

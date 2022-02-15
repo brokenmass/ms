@@ -1,5 +1,5 @@
-var i = 0
+let i = 0
 while(lt(i, 100)) {
   print(i)
-  i = sum(i, 1)
+  i = add(i, 1)
 }

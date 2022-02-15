@@ -5,7 +5,7 @@ const sum: functionDescriptor[] = [
   {
     used: false,
     inputs: [VALUE_TYPE.INT64],
-    output: VALUE_TYPE.VOID,
+    output: VALUE_TYPE.NEVER,
     code: {
       asm_x86_64: {
         call: (println) => {

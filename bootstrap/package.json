@@ -7,7 +7,7 @@
     "node": ">= 16.13 <17"
   },
   "scripts": {
-    "clean": "find ../examples -type f ! -name '*.ms' -delete"
+    "clean": "find ../examples -type f ! -name '*.rain' -delete"
   },
   "devDependencies": {
     "@types/jest": "^27.4.0",
