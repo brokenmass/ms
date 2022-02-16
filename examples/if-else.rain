@@ -1,4 +1,4 @@
-if(1000) {
+if(eq(1000, 0)) {
   print("yes\n")
 } else {
   print("no\n")

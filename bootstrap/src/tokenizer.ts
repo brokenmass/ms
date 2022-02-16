@@ -106,7 +106,7 @@ class FileReader {
   }
 
   get isEOF() {
-    return this.loc.index >= this.text.length - 1;
+    return this.loc.index > this.text.length - 1;
   }
 }
 const unescapeString = (str: string): string => {
@@ -170,7 +170,9 @@ const locToString = (loc: loc) => `${loc.file}:${loc.line + 1}:${loc.col + 1}`;
 
 const printTokenized = (tokenizedFile: tokenBlock) => {
   const innerPrint = (block: tokenBlock, indent = '') => {
-    console.log(indent + `${locToString(block.loc)}: block ${block.blockType}`);
+    console.log(
+      indent + `- ${locToString(block.loc)}: block ${block.blockType}`,
+    );
     block.contents.forEach((item) => {
       if (item.type === TOKEN_TYPE.BLOCK) {
         innerPrint(item, indent + '  ');
@@ -229,11 +231,11 @@ const tokenizer = (filename: string): tokenBlock => {
       if (value.length > 1) {
         return compileError(
           { loc: start },
-          'Chars can only be one character long',
+          'chars can only be one character long',
         );
       }
       currentBlock.contents.push({
-        type: TOKEN_TYPE.STRING,
+        type: TOKEN_TYPE.CHAR,
         loc: start,
         value,
         parentBlock: blockStack[blockStack.length - 1],
@@ -293,9 +295,11 @@ const tokenizer = (filename: string): tokenBlock => {
     // the blockStack is not empty that means that some brackets has not been correctly closed
     compileError(blockStack[1], 'Block not correctly closed');
   }
+
   if (config.debugTokenizer) {
     printTokenized(tokenizedFile);
   }
+
   return tokenizedFile;
 };
 

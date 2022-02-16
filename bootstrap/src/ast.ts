@@ -82,7 +82,6 @@ export type FUNCTION_CALL_OP = {
 
 export type IMMEDIATE_OP = {
   opType: OP_TYPES.IMMEDIATE;
-  name: string;
   loc: loc;
   valueType: VALUE_TYPE;
   value: string;
@@ -90,7 +89,6 @@ export type IMMEDIATE_OP = {
 
 export type CONTROL_FLOW_IF_OP = {
   opType: OP_TYPES.IF;
-  name: string;
   loc: loc;
   condition: AST;
   ifBody: AST;
@@ -100,7 +98,6 @@ export type CONTROL_FLOW_IF_OP = {
 
 export type CONTROL_FLOW_WHILE_OP = {
   opType: OP_TYPES.WHILE;
-  name: string;
   loc: loc;
   condition: AST;
   body: AST;
@@ -150,7 +147,8 @@ class Parser {
     this.ast = this.parseBlock(tokenizedFile);
   }
 
-  nextToken = () => this.currentBlock.contents.shift();
+  takeNextToken = () => this.currentBlock.contents.shift();
+  peekNextToken = () => this.currentBlock.contents[0];
 
   parseBlock = (block: tokenBlock): AST => {
     this.blockStack.push(block);
@@ -184,69 +182,83 @@ class Parser {
   };
 
   parseNextOP = ({ isLH = true } = {}): OP => {
-    const item = this.nextToken();
+    const token = this.takeNextToken();
 
-    if (item.type === TOKEN_TYPE.BLOCK) {
+    if (token.type === TOKEN_TYPE.BLOCK) {
       return compileError(
-        item,
+        token,
         'A block cannot contain another unassociated block',
       );
     }
 
     let out: OP;
 
-    if ((out = this.parseNumber(item))) return out;
-    if ((out = this.parseString(item))) return out;
-    if ((out = this.parseDeclaration(item, { isLH }))) return out;
-    if ((out = this.parseUsage(item, { isLH }))) return out;
-    if ((out = this.parseAssignment(item, { isLH }))) return out;
-    if ((out = this.parseFunctionCall(item, { isLH }))) return out;
-    if ((out = this.parseIf(item, { isLH }))) return out;
-    if ((out = this.parseWhile(item, { isLH }))) return out;
+    if ((out = this.parseNumber(token))) return out;
+    if ((out = this.parseString(token))) return out;
+    if ((out = this.parseDeclaration(token, { isLH }))) return out;
+    if ((out = this.parseUsage(token, { isLH }))) return out;
+    if ((out = this.parseAssignment(token, { isLH }))) return out;
+    if ((out = this.parseFunctionCall(token, { isLH }))) return out;
+    if ((out = this.parseIf(token, { isLH }))) return out;
+    if ((out = this.parseWhile(token, { isLH }))) return out;
 
-    return compileError(item, `Could not parse token ${item.value}`);
+    return compileError(token, `Could not parse token ${token.value}`);
   };
 
-  parseNumber = (item: token): IMMEDIATE_OP => {
-    if (item.type !== TOKEN_TYPE.NUMBER) {
+  parseNumber = (token: token): IMMEDIATE_OP => {
+    if (token.type !== TOKEN_TYPE.NUMBER) {
       return null;
     }
 
     return {
       opType: OP_TYPES.IMMEDIATE,
-      name: item.value,
-      loc: item.loc,
+      loc: token.loc,
       valueType: VALUE_TYPE.INT64,
-      value: item.value,
+      value: token.value,
     };
   };
 
-  parseString = (item: token): IMMEDIATE_OP => {
-    if (item.type !== TOKEN_TYPE.STRING) {
+  parseString = (token: token): IMMEDIATE_OP => {
+    if (token.type !== TOKEN_TYPE.STRING) {
       return null;
     }
 
     return {
       opType: OP_TYPES.IMMEDIATE,
-      name: item.value,
-      loc: item.loc,
+      loc: token.loc,
       valueType: VALUE_TYPE.STRING,
-      value: item.value,
+      value: token.value,
     };
   };
 
-  parseFunctionCall = (item: token, { isLH = true } = {}): FUNCTION_CALL_OP => {
-    if (item.type !== TOKEN_TYPE.WORD || !nativeMethods[item.value]) {
+  parseChar = (token: token): IMMEDIATE_OP => {
+    if (token.type !== TOKEN_TYPE.CHAR) {
       return null;
     }
 
-    const methods = nativeMethods[item.value];
-    const parametersBlock = this.nextToken();
+    return {
+      opType: OP_TYPES.IMMEDIATE,
+      loc: token.loc,
+      valueType: VALUE_TYPE.CHAR,
+      value: token.value,
+    };
+  };
+
+  parseFunctionCall = (
+    token: token,
+    { isLH = true } = {},
+  ): FUNCTION_CALL_OP => {
+    if (token.type !== TOKEN_TYPE.WORD || !nativeMethods[token.value]) {
+      return null;
+    }
+
+    const methods = nativeMethods[token.value];
+    const parametersBlock = this.takeNextToken();
     if (
       parametersBlock.type !== TOKEN_TYPE.BLOCK ||
       parametersBlock.blockType !== BLOCK_TYPE.ROUND
     ) {
-      return compileError(item, 'Missing parameters');
+      return compileError(token, 'Missing parameters');
     }
 
     const parameters = this.parseBlock(parametersBlock);
@@ -261,38 +273,63 @@ class Parser {
 
     if (!matchingMethod) {
       return compileError(
-        item,
-        `Could not find function matching "${item.value}(${parametersTypes})"`,
+        token,
+        `Could not find function matching "${token.value}(${parametersTypes})"`,
       );
     }
 
+    matchingMethod.used = false;
     return {
       opType: OP_TYPES.FUNCTION_CALL,
       function: matchingMethod,
       isLH: isLH,
-      name: item.value,
-      loc: item.loc,
+      name: token.value,
+      loc: token.loc,
       parameters: parameters,
       valueType: matchingMethod.output,
     };
   };
 
-  parseDeclaration = (item: token, { isLH = true } = {}): DECLARATION_OP => {
+  parseDeclaration = (token: token, { isLH = true } = {}): DECLARATION_OP => {
     if (
-      item.type !== TOKEN_TYPE.WORD ||
-      !Object.keys(declarationTypeStringMap).includes(item.value)
+      token.type !== TOKEN_TYPE.WORD ||
+      !Object.keys(declarationTypeStringMap).includes(token.value)
     ) {
       return null;
     }
 
-    const nameToken = this.nextToken();
-    if (nameToken.type !== TOKEN_TYPE.WORD) {
-      return compileError(item, `Missing variable name`);
+    const typeToken: token = this.takeNextToken();
+    let nameToken: token;
+    let type: VALUE_TYPE;
+    if (typeToken.type !== TOKEN_TYPE.WORD) {
+      return compileError(token, `Missing variable name`);
     }
+
+    if (Object.values(VALUE_TYPE).includes(typeToken.value as VALUE_TYPE)) {
+      type = typeToken.value as VALUE_TYPE;
+
+      nameToken = this.takeNextToken();
+
+      while (
+        nameToken.type === TOKEN_TYPE.BLOCK &&
+        nameToken.blockType === BLOCK_TYPE.SQUARE
+      ) {
+        this.parseBlock(nameToken);
+        nameToken = this.takeNextToken();
+      }
+      // type
+    } else {
+      nameToken = typeToken;
+    }
+
+    if (nameToken.type !== TOKEN_TYPE.WORD) {
+      return compileError(token, `Missing variable name`);
+    }
+
     if (reservedWords.includes(nameToken.value)) {
       return compileError(
         nameToken,
-        `Variable name "${nameToken.value}" must be alphanumerical`,
+        `Variable name "${nameToken.value}" must not used a reserved word`,
       );
     }
     const existing = this.findVariableDeclarationInScope(nameToken.value);
@@ -306,29 +343,44 @@ class Parser {
       );
     }
 
-    const assignmentToken = this.nextToken();
-    if (
-      assignmentToken.type !== TOKEN_TYPE.SPECIAL ||
-      assignmentToken.value !== '='
-    ) {
-      return compileError(
-        item,
-        `Variable "${nameToken.value}" must be assigned using '='`,
-      );
-    }
+    const assignmentToken = this.peekNextToken();
 
-    const assignedValue = this.parseNextOP({
-      isLH: false,
-    });
+    let value: AST = [];
+    if (
+      assignmentToken?.type !== TOKEN_TYPE.SPECIAL ||
+      assignmentToken?.value !== '='
+    ) {
+      if (!type) {
+        return compileError(
+          token,
+          `Implicitly typed variable "${nameToken.value}" must be assigned using '='`,
+        );
+      }
+    } else {
+      this.takeNextToken();
+      const assignmentOp = this.parseNextOP({
+        isLH: false,
+      });
+
+      if (type && assignmentOp.valueType !== type) {
+        return compileError(
+          assignmentOp,
+          `Cannot assign value of type "${assignmentOp.valueType}" to variable of type ${type}`,
+        );
+      }
+
+      type = assignmentOp.valueType;
+      value = [assignmentOp];
+    }
 
     const op: DECLARATION_OP = {
       opType: OP_TYPES.DECLARATION,
-      declarationType: declarationTypeStringMap[item.value],
+      declarationType: declarationTypeStringMap[token.value],
       isLH,
       name: nameToken.value,
-      loc: item.loc,
-      valueType: assignedValue.valueType,
-      value: [assignedValue],
+      loc: token.loc,
+      valueType: type,
+      value: value,
     };
 
     this.currentScope[op.name] = op;
@@ -336,12 +388,12 @@ class Parser {
     return op;
   };
 
-  parseUsage = (item: token, { isLH = true } = {}): USAGE_OP => {
-    if (item.type !== TOKEN_TYPE.WORD) {
+  parseUsage = (token: token, { isLH = true } = {}): USAGE_OP => {
+    if (token.type !== TOKEN_TYPE.WORD) {
       return null;
     }
 
-    const nextToken = this.currentBlock.contents[0];
+    const nextToken = this.peekNextToken();
     if (
       nextToken &&
       nextToken.type === TOKEN_TYPE.SPECIAL &&
@@ -351,7 +403,9 @@ class Parser {
       return null;
     }
 
-    const variableDeclaration = this.findVariableDeclarationInScope(item.value);
+    const variableDeclaration = this.findVariableDeclarationInScope(
+      token.value,
+    );
     if (!variableDeclaration) {
       return null;
     }
@@ -359,29 +413,29 @@ class Parser {
     const op: USAGE_OP = {
       opType: OP_TYPES.USAGE,
       declaration: variableDeclaration,
-      name: item.value,
+      name: token.value,
       isLH: isLH,
-      loc: item.loc,
+      loc: token.loc,
       valueType: variableDeclaration.valueType,
     };
 
     return op;
   };
 
-  parseAssignment = (item: token, { isLH = true } = {}): ASSIGNMENT_OP => {
-    if (item.type !== TOKEN_TYPE.WORD) {
+  parseAssignment = (token: token, { isLH = true } = {}): ASSIGNMENT_OP => {
+    if (token.type !== TOKEN_TYPE.WORD) {
       return null;
     }
 
-    if (
-      this.currentBlock.contents[0].type !== TOKEN_TYPE.SPECIAL ||
-      this.currentBlock.contents[0].value !== '='
-    ) {
+    const nextToken = this.peekNextToken();
+    if (nextToken.type !== TOKEN_TYPE.SPECIAL || nextToken.value !== '=') {
       // this is an assignment
       return null;
     }
-    this.nextToken();
-    const variableDeclaration = this.findVariableDeclarationInScope(item.value);
+    this.takeNextToken();
+    const variableDeclaration = this.findVariableDeclarationInScope(
+      token.value,
+    );
     if (!variableDeclaration) {
       return null;
     }
@@ -391,6 +445,7 @@ class Parser {
     });
 
     if (assignedValue.valueType !== variableDeclaration.valueType) {
+      console.log(assignedValue, variableDeclaration);
       return compileError(
         assignedValue,
         `Cannot assign value of type "${assignedValue.valueType}" to variable of type ${variableDeclaration.valueType}`,
@@ -401,8 +456,8 @@ class Parser {
       opType: OP_TYPES.ASSIGNMENT,
       declaration: variableDeclaration,
       isLH: isLH,
-      name: item.value,
-      loc: item.loc,
+      name: token.value,
+      loc: token.loc,
       valueType: assignedValue.valueType,
       value: [assignedValue],
     };
@@ -410,36 +465,36 @@ class Parser {
     return op;
   };
 
-  parseIf = (item: token, { isLH = true } = {}): CONTROL_FLOW_IF_OP => {
+  parseIf = (token: token, { isLH = true } = {}): CONTROL_FLOW_IF_OP => {
     if (
-      item.type !== TOKEN_TYPE.WORD ||
-      item.value !== CONTROL_FLOW_KEYWORDS.IF
+      token.type !== TOKEN_TYPE.WORD ||
+      token.value !== CONTROL_FLOW_KEYWORDS.IF
     ) {
       return null;
     }
 
     if (!isLH) {
       return compileError(
-        item,
+        token,
         `${OP_TYPES.IF} instructions cannot appear on the right side of an assignment`,
       );
     }
 
     if (
-      item.parentBlock.blockType === BLOCK_TYPE.ROUND ||
-      item.parentBlock.blockType === BLOCK_TYPE.SQUARE
+      token.parentBlock.blockType === BLOCK_TYPE.ROUND ||
+      token.parentBlock.blockType === BLOCK_TYPE.SQUARE
     ) {
       return compileError(
-        item,
-        `Cannot use if/else inside ${item.parentBlock.blockType} blocks`,
+        token,
+        `Cannot use if/else inside ${token.parentBlock.blockType} blocks`,
       );
     }
-    const conditionBlock = this.nextToken();
+    const conditionBlock = this.takeNextToken();
     if (
       conditionBlock.type !== TOKEN_TYPE.BLOCK ||
       conditionBlock.blockType !== BLOCK_TYPE.ROUND
     ) {
-      return compileError(item, 'Missing if condition');
+      return compileError(token, 'Missing if condition');
     }
 
     const condition = this.parseBlock(conditionBlock);
@@ -454,10 +509,10 @@ class Parser {
     }
 
     let ifBody: AST;
-    let nextToken = this.currentBlock.contents[0];
+    let nextToken = this.peekNextToken();
 
     if (nextToken.type === TOKEN_TYPE.BLOCK) {
-      const ifBodyBlock = this.nextToken() as tokenBlock;
+      const ifBodyBlock = this.takeNextToken() as tokenBlock;
       if (ifBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
         return compileError(
           ifBodyBlock,
@@ -470,17 +525,17 @@ class Parser {
     }
 
     let elseBody: AST;
-    nextToken = this.currentBlock.contents[0];
+    nextToken = this.peekNextToken();
     if (
       nextToken.type === TOKEN_TYPE.WORD &&
       nextToken.value === CONTROL_FLOW_KEYWORDS.ELSE
     ) {
-      this.nextToken();
-      nextToken = this.currentBlock.contents[0];
+      this.takeNextToken();
+      nextToken = this.peekNextToken();
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
       if (nextToken.type === TOKEN_TYPE.BLOCK) {
-        const elseBodyBlock = this.nextToken() as tokenBlock;
+        const elseBodyBlock = this.takeNextToken() as tokenBlock;
         if (elseBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
           return compileError(
             elseBodyBlock,
@@ -496,44 +551,43 @@ class Parser {
     return {
       opType: OP_TYPES.IF,
       condition,
-      name: item.value,
-      loc: item.loc,
+      loc: token.loc,
       ifBody,
       elseBody,
       valueType: VALUE_TYPE.VOID,
     };
   };
 
-  parseWhile = (item: token, { isLH = true } = {}): CONTROL_FLOW_WHILE_OP => {
+  parseWhile = (token: token, { isLH = true } = {}): CONTROL_FLOW_WHILE_OP => {
     if (
-      item.type !== TOKEN_TYPE.WORD ||
-      item.value !== CONTROL_FLOW_KEYWORDS.WHILE
+      token.type !== TOKEN_TYPE.WORD ||
+      token.value !== CONTROL_FLOW_KEYWORDS.WHILE
     ) {
       return null;
     }
 
     if (!isLH) {
       return compileError(
-        item,
+        token,
         `${OP_TYPES.WHILE} instructions cannot appear on the right side of an assignment`,
       );
     }
 
     if (
-      item.parentBlock.blockType === BLOCK_TYPE.ROUND ||
-      item.parentBlock.blockType === BLOCK_TYPE.SQUARE
+      token.parentBlock.blockType === BLOCK_TYPE.ROUND ||
+      token.parentBlock.blockType === BLOCK_TYPE.SQUARE
     ) {
       return compileError(
-        item,
-        `Cannot use while inside ${item.parentBlock.blockType} blocks`,
+        token,
+        `Cannot use while inside ${token.parentBlock.blockType} blocks`,
       );
     }
-    const conditionBlock = this.nextToken();
+    const conditionBlock = this.takeNextToken();
     if (
       conditionBlock.type !== TOKEN_TYPE.BLOCK ||
       conditionBlock.blockType !== BLOCK_TYPE.ROUND
     ) {
-      return compileError(item, 'Missing while condition');
+      return compileError(token, 'Missing while condition');
     }
 
     const condition = this.parseBlock(conditionBlock);
@@ -547,10 +601,10 @@ class Parser {
       return compileError(condition[0], 'condition must return a boolean');
     }
     let body: AST;
-    const nextToken = this.currentBlock.contents[0];
+    const nextToken = this.peekNextToken();
 
     if (nextToken.type === TOKEN_TYPE.BLOCK) {
-      const bodyBlock = this.nextToken() as tokenBlock;
+      const bodyBlock = this.takeNextToken() as tokenBlock;
       if (bodyBlock.blockType !== BLOCK_TYPE.CURLY) {
         return compileError(
           bodyBlock,
@@ -565,8 +619,7 @@ class Parser {
     return {
       opType: OP_TYPES.WHILE,
       condition,
-      name: item.value,
-      loc: item.loc,
+      loc: token.loc,
       body,
       valueType: VALUE_TYPE.VOID,
     };

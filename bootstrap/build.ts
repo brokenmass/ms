@@ -1,5 +1,9 @@
 #!/usr/bin/env -S node -r "ts-node/register"
 
-import { compile } from './src/index';
+import { compile, execCommand } from './src/index';
 
-compile(process.argv[2]);
+const executableFile = compile(process.argv[2]);
+
+if (process.argv.includes('-r')) {
+  process.exit(execCommand(executableFile).status);
+}

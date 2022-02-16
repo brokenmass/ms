@@ -1,3 +1,9 @@
 print(add(10, 20))
 
 print(mod(17, 10))
+
+
+let int64 i
+
+i = add(10, 90)
+print(i)

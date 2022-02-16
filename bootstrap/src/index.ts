@@ -5,7 +5,7 @@ import { generateAST } from './ast';
 import tokenizer from './tokenizer';
 import { spawnSync } from 'child_process';
 
-const execCommand = (command: string, args: string[] = []) => {
+export const execCommand = (command: string, args: string[] = [], {exitOnError = true} = {}) => {
   console.log('-------');
   console.log(command, args.join(' '));
   const out = spawnSync(command, args, {
@@ -15,6 +15,9 @@ const execCommand = (command: string, args: string[] = []) => {
   console.log('');
   console.log(`Exited with status code ${out.status}`);
 
+  if(out.status !== 0 && exitOnError){
+    process.exit(out.status);
+  }
   return out;
 };
 const compile = (filename: string) => {
@@ -28,7 +31,7 @@ const compile = (filename: string) => {
   const name = path.basename(filename, extension);
 
   if (extension !== '.rain') {
-    console.error('file extansion must be ".rain"');
+    console.error(`file extension must be ".rain" but got "${extension}" instead`);
   }
 
   const asmFile = './' + path.join(outdir, `${name}.asm`);
@@ -41,9 +44,7 @@ const compile = (filename: string) => {
 
   execCommand('chmod', ['+x', executableFile]);
 
-  if (process.argv.includes('-r')) {
-    process.exit(execCommand(executableFile).status);
-  }
+  return executableFile;
 };
 
 export { compile };

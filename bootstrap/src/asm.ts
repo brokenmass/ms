@@ -30,7 +30,7 @@ export const generateASM = (ast: AST): string => {
   const innerGenerator = (ast: AST) => {
     ast.forEach((op) => {
       if (op.opType === OP_TYPES.IF) {
-        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
+        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}]`);
         const ifEndLabel = getNextLabel();
         const elseEndLabel = getNextLabel();
 
@@ -50,7 +50,7 @@ export const generateASM = (ast: AST): string => {
         }
         codePrintLn(elseEndLabel + ':');
       } else if (op.opType === OP_TYPES.WHILE) {
-        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
+        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}]`);
         const whileConditionLabel = getNextLabel();
         const whileEndLabel = getNextLabel();
 
@@ -78,7 +78,7 @@ export const generateASM = (ast: AST): string => {
           const strLabel = `str_${stringsCounter++}`;
           codePrintLn(
             `; ${locToString(op.loc)}: [${op.opType}] "${escapeString(
-              op.name,
+              op.value,
             )}"`,
           );
           codePrintLn(`push ${strLabel}`);
@@ -86,16 +86,21 @@ export const generateASM = (ast: AST): string => {
           dataPrintLn(`${strLabel}:`);
           dataPrintLn('dq ' + bytes.length);
           dataPrintLn('db ' + bytes.join(', '));
+        } else if (op.valueType === VALUE_TYPE.CHAR) {
+          codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.value}"`);
+          codePrintLn(`push ${op.value.charCodeAt(0)}`);
         } else if (op.valueType === VALUE_TYPE.INT64) {
-          codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
+          codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.value}"`);
           codePrintLn(`push ${op.value}`);
         }
       } else if (op.opType === OP_TYPES.DECLARATION) {
         const varLabel = `var_${varCounter++}`;
         innerGenerator(op.value);
         codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
-        codePrintLn(`pop rax`);
-        codePrintLn(`mov [${varLabel}], rax`);
+        if (op.value.length) {
+          codePrintLn(`pop rax`);
+          codePrintLn(`mov [${varLabel}], rax`);
+        }
 
         if (!op.isLH) {
           codePrintLn(`push rax`);

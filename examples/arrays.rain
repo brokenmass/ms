@@ -1,0 +1,20 @@
+// const LENGTH = 32
+
+// let int64[LENGTH] test
+let int64[32] otherTest
+
+// let i = 0
+//
+// while (lt(i, 32)) {
+//   test[i] = i
+//   otherTest[i] = 1
+//
+//   i = add(i,1)
+// }
+//
+// while (gt(i, 0)) {
+//   print(test[i])
+//   print(otherTest[i])
+//
+//   i = minus(i,1)
+// }
