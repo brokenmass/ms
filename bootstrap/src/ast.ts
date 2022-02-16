@@ -7,7 +7,7 @@ export enum OP_TYPES {
   DECLARATION = 'declaration',
   ASSIGNMENT = 'assignment',
   USAGE = 'usage',
-  FUNCTION_CALL = 'functionCall',
+  NATIVE_FUNCTION_CALL = 'nativeFunctionCall',
   IF = 'if',
   WHILE = 'while',
   IMMEDIATE = 'immediate',
@@ -44,11 +44,12 @@ export type DECLARATION_OP = {
   opType: OP_TYPES.DECLARATION;
   declarationType: DECLARATION_KEYWORDS;
   isLH: boolean;
+  isInitialised: boolean;
   name: string;
   loc: loc;
   valueType: VALUE_TYPE;
   value: AST;
-  label?: string;
+  memPos?: number;
 };
 
 export type ASSIGNMENT_OP = {
@@ -70,8 +71,8 @@ export type USAGE_OP = {
   valueType: VALUE_TYPE;
 };
 
-export type FUNCTION_CALL_OP = {
-  opType: OP_TYPES.FUNCTION_CALL;
+export type NATIVE_FUNCTION_CALL_OP = {
+  opType: OP_TYPES.NATIVE_FUNCTION_CALL;
   function: functionDescriptor;
   name: string;
   isLH: boolean;
@@ -108,7 +109,7 @@ export type OP =
   | DECLARATION_OP
   | ASSIGNMENT_OP
   | USAGE_OP
-  | FUNCTION_CALL_OP
+  | NATIVE_FUNCTION_CALL_OP
   | IMMEDIATE_OP
   | CONTROL_FLOW_IF_OP
   | CONTROL_FLOW_WHILE_OP;
@@ -195,6 +196,7 @@ class Parser {
 
     if ((out = this.parseNumber(token))) return out;
     if ((out = this.parseString(token))) return out;
+    if ((out = this.parseChar(token))) return out;
     if ((out = this.parseDeclaration(token, { isLH }))) return out;
     if ((out = this.parseUsage(token, { isLH }))) return out;
     if ((out = this.parseAssignment(token, { isLH }))) return out;
@@ -247,7 +249,7 @@ class Parser {
   parseFunctionCall = (
     token: token,
     { isLH = true } = {},
-  ): FUNCTION_CALL_OP => {
+  ): NATIVE_FUNCTION_CALL_OP => {
     if (token.type !== TOKEN_TYPE.WORD || !nativeMethods[token.value]) {
       return null;
     }
@@ -280,7 +282,7 @@ class Parser {
 
     matchingMethod.used = false;
     return {
-      opType: OP_TYPES.FUNCTION_CALL,
+      opType: OP_TYPES.NATIVE_FUNCTION_CALL,
       function: matchingMethod,
       isLH: isLH,
       name: token.value,
@@ -376,6 +378,7 @@ class Parser {
     const op: DECLARATION_OP = {
       opType: OP_TYPES.DECLARATION,
       declarationType: declarationTypeStringMap[token.value],
+      isInitialised: value.length > 0,
       isLH,
       name: nameToken.value,
       loc: token.loc,
@@ -409,7 +412,12 @@ class Parser {
     if (!variableDeclaration) {
       return null;
     }
-
+    if (!variableDeclaration.isInitialised) {
+      return compileError(
+        token,
+        `Cannot use uninitialised variable "${token.value}"`,
+      );
+    }
     const op: USAGE_OP = {
       opType: OP_TYPES.USAGE,
       declaration: variableDeclaration,
@@ -428,7 +436,7 @@ class Parser {
     }
 
     const nextToken = this.peekNextToken();
-    if (nextToken.type !== TOKEN_TYPE.SPECIAL || nextToken.value !== '=') {
+    if (nextToken?.type !== TOKEN_TYPE.SPECIAL || nextToken?.value !== '=') {
       // this is an assignment
       return null;
     }
@@ -445,12 +453,13 @@ class Parser {
     });
 
     if (assignedValue.valueType !== variableDeclaration.valueType) {
-      console.log(assignedValue, variableDeclaration);
       return compileError(
         assignedValue,
         `Cannot assign value of type "${assignedValue.valueType}" to variable of type ${variableDeclaration.valueType}`,
       );
     }
+
+    variableDeclaration.isInitialised = true;
 
     const op: ASSIGNMENT_OP = {
       opType: OP_TYPES.ASSIGNMENT,
@@ -496,7 +505,9 @@ class Parser {
     ) {
       return compileError(token, 'Missing if condition');
     }
+    // PARSE CONDITION
 
+    this.pushScope();
     const condition = this.parseBlock(conditionBlock);
     if (condition.length > 1) {
       return compileError(
@@ -508,9 +519,11 @@ class Parser {
       return compileError(condition[0], 'condition must return a boolean');
     }
 
+    // PARSE IF BODY
     let ifBody: AST;
     let nextToken = this.peekNextToken();
 
+    this.pushScope();
     if (nextToken.type === TOKEN_TYPE.BLOCK) {
       const ifBodyBlock = this.takeNextToken() as tokenBlock;
       if (ifBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
@@ -523,17 +536,19 @@ class Parser {
     } else {
       ifBody = [this.parseNextOP()];
     }
+    this.popScope();
 
+    // PARSE ELSE BODY
     let elseBody: AST;
     nextToken = this.peekNextToken();
     if (
       nextToken.type === TOKEN_TYPE.WORD &&
       nextToken.value === CONTROL_FLOW_KEYWORDS.ELSE
     ) {
+      this.pushScope();
       this.takeNextToken();
       nextToken = this.peekNextToken();
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
+
       if (nextToken.type === TOKEN_TYPE.BLOCK) {
         const elseBodyBlock = this.takeNextToken() as tokenBlock;
         if (elseBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
@@ -546,8 +561,11 @@ class Parser {
       } else {
         elseBody = [this.parseNextOP()];
       }
+
+      this.popScope();
     }
 
+    this.popScope();
     return {
       opType: OP_TYPES.IF,
       condition,
@@ -582,6 +600,8 @@ class Parser {
         `Cannot use while inside ${token.parentBlock.blockType} blocks`,
       );
     }
+
+    this.pushScope();
     const conditionBlock = this.takeNextToken();
     if (
       conditionBlock.type !== TOKEN_TYPE.BLOCK ||
@@ -615,7 +635,7 @@ class Parser {
     } else {
       body = [this.parseNextOP()];
     }
-
+    this.popScope();
     return {
       opType: OP_TYPES.WHILE,
       condition,
@@ -628,4 +648,6 @@ class Parser {
   findVariableDeclarationInScope = (name: string): DECLARATION_OP => {
     return this.scopeStack.find((scope) => scope[name])?.[name];
   };
+  pushScope = () => this.scopeStack.push({});
+  popScope = () => this.scopeStack.pop();
 }

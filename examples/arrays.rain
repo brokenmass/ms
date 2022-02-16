@@ -1,6 +1,6 @@
-// const LENGTH = 32
+const LENGTH = 32
 
-// let int64[LENGTH] test
+let int64[LENGTH] test
 let int64[32] otherTest
 
 // let i = 0

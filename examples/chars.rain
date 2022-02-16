@@ -1,0 +1,13 @@
+let a = 'a'
+
+let b = 'b'
+
+let n = '\n'
+
+print(a)
+print(b)
+print(n)
+
+print('1')
+print('\t')
+print('2')

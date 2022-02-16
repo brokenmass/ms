@@ -68,6 +68,23 @@ const print: functionDescriptor[] = [
       },
     },
   },
+  {
+    used: false,
+    inputs: [VALUE_TYPE.CHAR],
+    output: null,
+    code: {
+      asm_x86_64: {
+        call: (println) => {
+          println('mov rdx, 1');
+          println('mov rsi, rsp');
+          println('mov rdi, 1');
+          println('mov rax, 1');
+          println('syscall');
+          println('pop rax');
+        },
+      },
+    },
+  },
 ];
 
 export default print;

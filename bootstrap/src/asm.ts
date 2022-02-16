@@ -1,20 +1,11 @@
-import { AST, OP_TYPES } from './ast';
+import { AST, DECLARATION_OP, OP_TYPES } from './ast';
 import config from './config';
 import { VALUE_TYPE } from './coreTypes';
 import { locToString } from './utils';
 
-const format = (str: string): string => {
-  if (str.length > 0 && str.indexOf(':') === str.length - 1) {
-    return str;
-  } else {
-    return '  ' + str;
-  }
-};
-
 const escapeString = (str: string): string => str.replace(/\n/g, '\\n');
 export const generateASM = (ast: AST): string => {
   let stringsCounter = 0;
-  let varCounter = 0;
   let labelCounter = 0;
   const header = [];
   const code = [];
@@ -22,33 +13,74 @@ export const generateASM = (ast: AST): string => {
 
   const defaultExit = ['  mov rax, 60', '  mov rdi, 0', '  syscall'];
 
+  let stackIndex = 0;
+  const format = (str: string): string => {
+    if (str.startsWith('push')) {
+      stackIndex -= 8;
+    }
+    if (str.startsWith('pop')) {
+      stackIndex += 8;
+    }
+    if (str.length > 0 && str.indexOf(':') === str.length - 1) {
+      return str;
+    } else {
+      return '  ' + str;
+    }
+  };
   const getNextLabel = () => `addr_${labelCounter++}`;
   const headerPrintLn = (str: string) => header.push(format(str));
   const codePrintLn = (str: string) => code.push(format(str));
   const dataPrintLn = (str: string) => data.push(format(str));
 
+  const mapDeclarations = (ast: AST) => {
+    const declarations = ast.filter(
+      (op) => op.opType === OP_TYPES.DECLARATION,
+    ) as DECLARATION_OP[];
+
+    if (declarations.length) {
+      declarations.forEach(
+        (op) => ((op.memPos = stackIndex), (stackIndex += 8)),
+      );
+      codePrintLn(`sub rsp, ${declarations.length * 8}`);
+    }
+  };
+
+  const unMapDeclarations = (ast: AST) => {
+    const declarations = ast.filter(
+      (op) => op.opType === OP_TYPES.DECLARATION,
+    ) as DECLARATION_OP[];
+    if (declarations.length) {
+      codePrintLn(`add rsp, ${declarations.length * 8}`);
+    }
+  };
   const innerGenerator = (ast: AST) => {
     ast.forEach((op) => {
       if (op.opType === OP_TYPES.IF) {
         codePrintLn(`; ${locToString(op.loc)}: [${op.opType}]`);
         const ifEndLabel = getNextLabel();
         const elseEndLabel = getNextLabel();
-
+        mapDeclarations(op.condition);
         innerGenerator(op.condition);
 
         codePrintLn('pop rax');
         codePrintLn('test rax, rax');
         codePrintLn('jz ' + ifEndLabel);
 
+        mapDeclarations(op.ifBody);
         innerGenerator(op.ifBody);
+        unMapDeclarations(op.ifBody);
         if (op.elseBody) {
           codePrintLn('jmp ' + elseEndLabel);
         }
         codePrintLn(ifEndLabel + ':');
         if (op.elseBody) {
+          mapDeclarations(op.elseBody);
           innerGenerator(op.elseBody);
+          unMapDeclarations(op.elseBody);
+          codePrintLn(elseEndLabel + ':');
         }
-        codePrintLn(elseEndLabel + ':');
+
+        unMapDeclarations(op.condition);
       } else if (op.opType === OP_TYPES.WHILE) {
         codePrintLn(`; ${locToString(op.loc)}: [${op.opType}]`);
         const whileConditionLabel = getNextLabel();
@@ -56,16 +88,20 @@ export const generateASM = (ast: AST): string => {
 
         codePrintLn(whileConditionLabel + ':');
 
+        mapDeclarations(op.condition);
         innerGenerator(op.condition);
 
         codePrintLn('pop rax');
         codePrintLn('test rax, rax');
         codePrintLn('jz ' + whileEndLabel);
 
+        mapDeclarations(op.body);
         innerGenerator(op.body);
+        unMapDeclarations([...op.condition, ...op.body]);
+
         codePrintLn('jmp ' + whileConditionLabel);
         codePrintLn(whileEndLabel + ':');
-      } else if (op.opType === OP_TYPES.FUNCTION_CALL) {
+      } else if (op.opType === OP_TYPES.NATIVE_FUNCTION_CALL) {
         innerGenerator(op.parameters);
         if (op.function.code.asm_x86_64.header && !op.function.used) {
           op.function.code.asm_x86_64.header(headerPrintLn, getNextLabel);
@@ -87,52 +123,55 @@ export const generateASM = (ast: AST): string => {
           dataPrintLn('dq ' + bytes.length);
           dataPrintLn('db ' + bytes.join(', '));
         } else if (op.valueType === VALUE_TYPE.CHAR) {
-          codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.value}"`);
+          codePrintLn(
+            `; ${locToString(op.loc)}: [${op.opType}] "${escapeString(
+              op.value,
+            )}"`,
+          );
           codePrintLn(`push ${op.value.charCodeAt(0)}`);
         } else if (op.valueType === VALUE_TYPE.INT64) {
           codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.value}"`);
           codePrintLn(`push ${op.value}`);
         }
       } else if (op.opType === OP_TYPES.DECLARATION) {
-        const varLabel = `var_${varCounter++}`;
         innerGenerator(op.value);
         codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
         if (op.value.length) {
           codePrintLn(`pop rax`);
-          codePrintLn(`mov [${varLabel}], rax`);
+          const delta = stackIndex - op.memPos;
+          codePrintLn(`mov [rsp + ${delta}], rax`);
         }
 
         if (!op.isLH) {
+          codePrintLn(`pop rax`);
+          codePrintLn(`push rax`);
           codePrintLn(`push rax`);
         }
-
-        dataPrintLn(`${varLabel}:`);
-        dataPrintLn(`rq 1`);
-
-        op.label = varLabel;
       } else if (op.opType === OP_TYPES.USAGE) {
-        const varLabel = op.declaration.label;
         codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
         codePrintLn(`xor rax, rax`);
-        codePrintLn(`mov rax, [${varLabel}]`);
+        const delta = stackIndex - op.declaration.memPos;
+        codePrintLn(`mov rax, [rsp + ${delta}]`);
 
         if (!op.isLH) {
           codePrintLn(`push rax`);
         }
       } else if (op.opType === OP_TYPES.ASSIGNMENT) {
-        const varLabel = op.declaration.label;
         innerGenerator(op.value);
         codePrintLn(`; ${locToString(op.loc)}: [${op.opType}] "${op.name}"`);
         codePrintLn(`pop rax`);
-        codePrintLn(`mov [${varLabel}], rax`);
+        const delta = stackIndex - op.declaration.memPos;
+        codePrintLn(`mov [rsp + ${delta}], rax`);
 
         if (!op.isLH) {
           codePrintLn(`push rax`);
         }
+      } else {
+        console.error(op);
       }
     });
   };
-
+  mapDeclarations(ast);
   innerGenerator(ast);
   // default exit code
   const text = [
