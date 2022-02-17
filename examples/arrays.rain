@@ -1,20 +1,26 @@
-const LENGTH = 32
+const ALPHABET_LENGTH=26
+let array = malloc(ALPHABET_LENGTH)
 
-let int64[LENGTH] test
-let int64[32] otherTest
+let i = 0
 
-// let i = 0
-//
-// while (lt(i, 32)) {
-//   test[i] = i
-//   otherTest[i] = 1
-//
-//   i = add(i,1)
-// }
-//
-// while (gt(i, 0)) {
-//   print(test[i])
-//   print(otherTest[i])
-//
-//   i = minus(i,1)
-// }
+
+while (lt(i, ALPHABET_LENGTH)) {
+  let pos = add(array, i)
+
+  writeByte(pos, add('a', i))
+
+  print(readByte(pos))
+
+  i = add(i, 1)
+}
+
+print('\n')
+
+while (ge(i, 0)) {
+
+  let pos = add(array, i)
+
+  print(readByte(pos))
+
+  i = sub(i,1)
+}

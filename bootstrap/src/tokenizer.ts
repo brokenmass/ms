@@ -7,7 +7,7 @@ const EMPTY_CHARS = ' \r\n';
 
 const BLOCK_OPENING_CHARS = '([{';
 const BLOCK_CLOSING_CHARS = ')]}';
-const ALPHABET = 'abcdefghijklmnopqrstuvwxyz';
+const ALPHABET = 'abcdefghijklmnopqrstuvwxyz_';
 const NUMBER_CHARS = '01234567890';
 const NON_SPECIAL_CHARS =
   ALPHABET + ALPHABET.toUpperCase() + NUMBER_CHARS + EMPTY_CHARS;

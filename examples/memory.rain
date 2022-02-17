@@ -1,0 +1,29 @@
+let mem = malloc(100)
+
+let pos = mem
+writeByte(pos, 'a')
+
+pos = add(pos, 1)
+writeByte(pos, 'b')
+
+pos = add(pos, 1)
+writeByte(pos, 'c')
+
+
+pos = mem
+
+print(int64(pos))
+print(readByte(pos))
+print('\n')
+
+pos =  add(pos, 1)
+print(int64(pos))
+print(readByte(pos))
+print('\n')
+
+pos =  add(pos, 1)
+print(int64(pos))
+print(readByte(pos))
+print('\n')
+
+

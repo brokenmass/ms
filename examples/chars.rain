@@ -1,8 +1,7 @@
-let a = 'a'
+const a = 'a'
+const b = 'b'
+const n = '\n'
 
-let b = 'b'
-
-let n = '\n'
 
 print(a)
 print(b)

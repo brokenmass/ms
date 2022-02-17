@@ -4,6 +4,29 @@ export enum VALUE_TYPE {
   INT64 = 'int64',
   STRING = 'string',
   CHAR = 'char',
-  PTR = 'pointer',
+  POINTER = 'pointer',
   BOOL = 'boolean',
 }
+
+export type itemType = {
+  name: string;
+  length?: number;
+  attributes?: {
+    [key: string]: itemType & { offset: number };
+  };
+};
+
+// const int64: itemType = {
+//   name: 'int64',
+//   length: 8,
+// }
+
+// const char: itemType = {
+//   name: 'char',
+//   length: 1,
+// }
+
+// const int64: itemType = {
+//   name: 'int64',
+//   length: 8,
+// }

@@ -16,10 +16,10 @@ export const generateASM = (ast: AST): string => {
   let stackIndex = 0;
   const format = (str: string): string => {
     if (str.startsWith('push')) {
-      stackIndex -= 8;
+      stackIndex += 8;
     }
     if (str.startsWith('pop')) {
-      stackIndex += 8;
+      stackIndex -= 8;
     }
     if (str.length > 0 && str.indexOf(':') === str.length - 1) {
       return str;
@@ -41,6 +41,7 @@ export const generateASM = (ast: AST): string => {
       declarations.forEach(
         (op) => ((op.memPos = stackIndex), (stackIndex += 8)),
       );
+      codePrintLn(`; allocate local variable space ${declarations.length * 8}`);
       codePrintLn(`sub rsp, ${declarations.length * 8}`);
     }
   };
@@ -50,7 +51,9 @@ export const generateASM = (ast: AST): string => {
       (op) => op.opType === OP_TYPES.DECLARATION,
     ) as DECLARATION_OP[];
     if (declarations.length) {
+      codePrintLn(`; cleanup local variable space ${declarations.length * 8}`);
       codePrintLn(`add rsp, ${declarations.length * 8}`);
+      stackIndex -= declarations.length * 8;
     }
   };
   const innerGenerator = (ast: AST) => {
@@ -82,10 +85,9 @@ export const generateASM = (ast: AST): string => {
 
         unMapDeclarations(op.condition);
       } else if (op.opType === OP_TYPES.WHILE) {
-        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}]`);
         const whileConditionLabel = getNextLabel();
         const whileEndLabel = getNextLabel();
-
+        codePrintLn(`; ${locToString(op.loc)}: [${op.opType}]`);
         codePrintLn(whileConditionLabel + ':');
 
         mapDeclarations(op.condition);
@@ -97,6 +99,7 @@ export const generateASM = (ast: AST): string => {
 
         mapDeclarations(op.body);
         innerGenerator(op.body);
+
         unMapDeclarations([...op.condition, ...op.body]);
 
         codePrintLn('jmp ' + whileConditionLabel);
@@ -187,6 +190,10 @@ export const generateASM = (ast: AST): string => {
     '; -- Data --',
     'segment readable writable',
     ...data,
+    'mem_used:',
+    '  dq 0',
+    'mem_start:',
+    '  rb 131072',
   ].join('\n');
 
   if (config.debugASMCode) {

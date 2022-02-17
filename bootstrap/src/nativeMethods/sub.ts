@@ -6,7 +6,7 @@ const code = {
     call: (println) => {
       println('pop rbx');
       println('pop rax');
-      println('add rax, rbx');
+      println('sub rax, rbx');
       println('push rax');
     },
   },
@@ -34,6 +34,12 @@ const add: functionDescriptor[] = [
   {
     used: false,
     inputs: [VALUE_TYPE.INT64, VALUE_TYPE.CHAR],
+    output: VALUE_TYPE.INT64,
+    code,
+  },
+  {
+    used: false,
+    inputs: [VALUE_TYPE.POINTER, VALUE_TYPE.POINTER],
     output: VALUE_TYPE.INT64,
     code,
   },

@@ -83,6 +83,7 @@ export type NATIVE_FUNCTION_CALL_OP = {
 
 export type IMMEDIATE_OP = {
   opType: OP_TYPES.IMMEDIATE;
+  isLH: boolean;
   loc: loc;
   valueType: VALUE_TYPE;
   value: string;
@@ -197,6 +198,7 @@ class Parser {
     if ((out = this.parseNumber(token))) return out;
     if ((out = this.parseString(token))) return out;
     if ((out = this.parseChar(token))) return out;
+    if ((out = this.parseCast(token, { isLH }))) return out;
     if ((out = this.parseDeclaration(token, { isLH }))) return out;
     if ((out = this.parseUsage(token, { isLH }))) return out;
     if ((out = this.parseAssignment(token, { isLH }))) return out;
@@ -207,43 +209,79 @@ class Parser {
     return compileError(token, `Could not parse token ${token.value}`);
   };
 
-  parseNumber = (token: token): IMMEDIATE_OP => {
+  parseNumber = (token: token, { isLH = true } = {}): IMMEDIATE_OP => {
     if (token.type !== TOKEN_TYPE.NUMBER) {
       return null;
     }
 
     return {
       opType: OP_TYPES.IMMEDIATE,
+      isLH: isLH,
       loc: token.loc,
       valueType: VALUE_TYPE.INT64,
       value: token.value,
     };
   };
 
-  parseString = (token: token): IMMEDIATE_OP => {
+  parseString = (token: token, { isLH = true } = {}): IMMEDIATE_OP => {
     if (token.type !== TOKEN_TYPE.STRING) {
       return null;
     }
 
     return {
       opType: OP_TYPES.IMMEDIATE,
+      isLH: isLH,
       loc: token.loc,
       valueType: VALUE_TYPE.STRING,
       value: token.value,
     };
   };
 
-  parseChar = (token: token): IMMEDIATE_OP => {
+  parseChar = (token: token, { isLH = true } = {}): IMMEDIATE_OP => {
     if (token.type !== TOKEN_TYPE.CHAR) {
       return null;
     }
 
     return {
       opType: OP_TYPES.IMMEDIATE,
+      isLH: isLH,
       loc: token.loc,
       valueType: VALUE_TYPE.CHAR,
       value: token.value,
     };
+  };
+
+  parseCast = (token: token, { isLH = true } = {}): OP => {
+    if (
+      token.type !== TOKEN_TYPE.WORD ||
+      !Object.values(VALUE_TYPE).includes(token.value as VALUE_TYPE)
+    ) {
+      return null;
+    }
+
+    const parametersBlock = this.takeNextToken();
+    if (
+      parametersBlock.type !== TOKEN_TYPE.BLOCK ||
+      parametersBlock.blockType !== BLOCK_TYPE.ROUND
+    ) {
+      return compileError(token, 'Missing parameters');
+    }
+
+    const item = this.parseBlock(parametersBlock);
+
+    if (item.length > 1) {
+      return compileError(item[1], 'Too many parameters');
+    }
+
+    const op = item[0] as Exclude<
+      OP,
+      CONTROL_FLOW_IF_OP | CONTROL_FLOW_WHILE_OP
+    >;
+
+    op.valueType = token.value as VALUE_TYPE;
+    op.isLH = isLH;
+
+    return op;
   };
 
   parseFunctionCall = (
@@ -542,6 +580,7 @@ class Parser {
     let elseBody: AST;
     nextToken = this.peekNextToken();
     if (
+      nextToken &&
       nextToken.type === TOKEN_TYPE.WORD &&
       nextToken.value === CONTROL_FLOW_KEYWORDS.ELSE
     ) {
