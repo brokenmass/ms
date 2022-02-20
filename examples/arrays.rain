@@ -1,26 +1,24 @@
-const ALPHABET_LENGTH=26
-let array = malloc(ALPHABET_LENGTH)
+const ALPHABET_LENGTH <- 26
+let array <- malloc(ALPHABET_LENGTH)
 
-let i = 0
+let i <- 0
 
 
-while (lt(i, ALPHABET_LENGTH)) {
-  let pos = add(array, i)
+while (i < ALPHABET_LENGTH) {
+  let pos <- array + i
 
-  writeByte(pos, add('a', i))
+  writeByte(pos, 'a' + i)
 
   print(readByte(pos))
 
-  i = add(i, 1)
+  i <- i + 1
 }
 
 print('\n')
 
-while (ge(i, 0)) {
+while (i >= 0) {
 
-  let pos = add(array, i)
+  print(readByte(array + i))
 
-  print(readByte(pos))
-
-  i = sub(i,1)
+  i <- i - 1
 }

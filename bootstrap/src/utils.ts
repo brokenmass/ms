@@ -16,6 +16,4 @@ export const compileError = (
 };
 
 export const inspect = (input: unknown) =>
-  console.log(
-    util.inspect(input, { depth: Infinity, colors: true, compact: false }),
-  );
+  console.log(util.inspect(input, { depth: Infinity, colors: true }));

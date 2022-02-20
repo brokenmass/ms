@@ -1,5 +1,5 @@
-let i = 0
-while(lt(i, 100)) {
+let i <- 0
+while(<(i, 100)) {
   print(i)
-  i = add(i, 1)
+  i <- +(i, 1)
 }
