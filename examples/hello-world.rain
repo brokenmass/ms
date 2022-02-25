@@ -1,2 +1,7 @@
 // test comment
-print("Hello, world\n")
+let h <- "Hello, world\n"
+print(h)
+
+let j <- h
+
+print(j)

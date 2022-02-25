@@ -1,7 +1,6 @@
-import { BLOCK_TYPE, loc, tokenBlock, TOKEN_TYPE, token } from './tokenizer';
+import { BLOCK_TYPE, TOKEN_TYPE, token, loc } from './tokenizer';
 import { compileError, inspect, locToString } from './utils';
-import nativeMethods, { functionDescriptor } from './nativeMethods';
-import { VALUE_TYPE } from './coreTypes';
+import { genericPointer, types, VALUE_FAMILY, VALUE_TYPE } from './coreTypes';
 import config from './config';
 export enum OP_TYPES {
   DECLARATION = 'declaration',
@@ -11,7 +10,58 @@ export enum OP_TYPES {
   IF = 'if',
   WHILE = 'while',
   IMMEDIATE = 'immediate',
+  OPEN_SCOPE = 'openScope',
+  CLOSE_SCOPE = 'closeScope',
 }
+
+export enum NATIVE_OPERATORS {
+  '+' = '+',
+  '-' = '-',
+  '%' = '%',
+  '<' = '<',
+  '<=' = '<=',
+  '>' = '>',
+  '>=' = '>=',
+  '==' = '==',
+  '&' = '&',
+  '|' = '|',
+  '<<' = '<<',
+  '>>' = '>>',
+}
+
+export enum NATIVE_PRINT {
+  'print' = 'print',
+}
+
+export enum NATIVE_TOOLS {
+  'exit' = 'exit',
+  'malloc' = 'malloc',
+}
+
+export enum NATIVE_MEMORY_WRITE {
+  'writeByte' = 'writeByte',
+  'writeQuad' = 'writeQuad',
+}
+
+export enum NATIVE_MEMORY_READ {
+  'readByte' = 'readByte',
+  'readQuad' = 'readQuad',
+}
+
+export type NATIVE_FUNCTION_TYPE =
+  | keyof typeof NATIVE_OPERATORS
+  | keyof typeof NATIVE_PRINT
+  | keyof typeof NATIVE_TOOLS
+  | keyof typeof NATIVE_MEMORY_WRITE
+  | keyof typeof NATIVE_MEMORY_READ;
+
+//   {},
+//   NATIVE_ALGEBRIC,
+//   NATIVE_PRINT,
+//   NATIVE_TOOLS,
+//   NATIVE_MEMORY_WRITE,
+//   NATIVE_MEMORY_READ,
+// );
 
 export enum SPECIAL_CHARS {
   ASSIGN = '=',
@@ -33,23 +83,22 @@ const declarationTypeStringMap = Object.entries(DECLARATION_KEYWORDS).reduce(
   {},
 );
 
+const typesKeyword = Object.keys(types);
+
 const reservedWords = [
-  ...Object.keys(VALUE_TYPE),
+  ...typesKeyword,
   ...Object.keys(DECLARATION_KEYWORDS),
   ...Object.keys(CONTROL_FLOW_KEYWORDS),
-  ...Object.keys(nativeMethods),
 ];
 
 export type DECLARATION_OP = {
   opType: OP_TYPES.DECLARATION;
   declarationType: DECLARATION_KEYWORDS;
   isLH: boolean;
-  isInitialised: boolean;
   name: string;
-  loc: loc;
+  token: token;
   valueType: VALUE_TYPE;
-  value: AST;
-  memPos?: number;
+  stackPos: number;
 };
 
 export type ASSIGNMENT_OP = {
@@ -57,9 +106,10 @@ export type ASSIGNMENT_OP = {
   declaration: DECLARATION_OP;
   name: string;
   isLH: boolean;
-  loc: loc;
+  token: token;
   valueType: VALUE_TYPE;
-  value: AST;
+  value: OP[];
+  stackPos: number;
 };
 
 export type USAGE_OP = {
@@ -67,43 +117,56 @@ export type USAGE_OP = {
   declaration: DECLARATION_OP;
   isLH: boolean;
   name: string;
-  loc: loc;
+  token: token;
   valueType: VALUE_TYPE;
+  stackPos: number;
 };
 
 export type NATIVE_FUNCTION_CALL_OP = {
   opType: OP_TYPES.NATIVE_FUNCTION_CALL;
-  function: functionDescriptor;
-  name: string;
+  nativeType: NATIVE_FUNCTION_TYPE;
   isLH: boolean;
-  loc: loc;
-  parameters: AST;
+  token: token;
+  parameters: OP[];
   valueType: VALUE_TYPE;
+  stackPos?: number;
 };
 
 export type IMMEDIATE_OP = {
   opType: OP_TYPES.IMMEDIATE;
   isLH: boolean;
-  loc: loc;
+  token: token;
   valueType: VALUE_TYPE;
-  value: string;
+  value: string | number;
+  stackPos?: number;
+  label?: string;
 };
 
 export type CONTROL_FLOW_IF_OP = {
   opType: OP_TYPES.IF;
-  loc: loc;
-  condition: AST;
+  token: token;
+  condition: OP[];
   ifBody: AST;
-  elseBody?: AST;
-  valueType: VALUE_TYPE.VOID;
+  elseBody: AST;
+  valueType: VALUE_TYPE;
 };
 
 export type CONTROL_FLOW_WHILE_OP = {
   opType: OP_TYPES.WHILE;
-  loc: loc;
-  condition: AST;
+  token: token;
+  condition: OP[];
   body: AST;
-  valueType: VALUE_TYPE.VOID;
+  valueType: VALUE_TYPE;
+};
+
+export type OPEN_SCOPE = {
+  opType: OP_TYPES.OPEN_SCOPE;
+  scope: scope;
+};
+
+export type CLOSE_SCOPE = {
+  opType: OP_TYPES.CLOSE_SCOPE;
+  scope: scope;
 };
 
 export type OP =
@@ -111,13 +174,17 @@ export type OP =
   | ASSIGNMENT_OP
   | USAGE_OP
   | NATIVE_FUNCTION_CALL_OP
-  | IMMEDIATE_OP
+  | IMMEDIATE_OP;
+export type CONTROL_OP =
+  | OPEN_SCOPE
+  | CLOSE_SCOPE
   | CONTROL_FLOW_IF_OP
   | CONTROL_FLOW_WHILE_OP;
 
-export type AST = OP[];
-export const generateAST = (tokenizedFile: tokenBlock): AST => {
-  const parsed = new Parser(tokenizedFile);
+export type AST = (OP | CONTROL_OP)[];
+
+export const generateAST = (tokens: token[]): AST => {
+  const parsed = new Parser(tokens);
 
   if (config.debugAST) {
     inspect(parsed.ast);
@@ -127,566 +194,795 @@ export const generateAST = (tokenizedFile: tokenBlock): AST => {
 };
 
 type scope = {
-  [key: string]: DECLARATION_OP;
+  size: number;
+  vars: {
+    [key: string]: DECLARATION_OP;
+  };
+};
+
+export const algebricOutput = (
+  name: keyof typeof NATIVE_OPERATORS,
+  parameters: OP[],
+): VALUE_TYPE => {
+  if (parameters.length === 2) {
+    if (
+      parameters[0].valueType.family === VALUE_FAMILY.INTEGER &&
+      parameters[1].valueType.family === VALUE_FAMILY.INTEGER
+    ) {
+      return parameters[0].valueType.size > parameters[1].valueType.size
+        ? parameters[0].valueType
+        : parameters[0].valueType;
+    } else if (
+      name === '+' &&
+      parameters[0].valueType.family === VALUE_FAMILY.POINTER &&
+      parameters[1].valueType.family === VALUE_FAMILY.INTEGER
+    ) {
+      return parameters[0].valueType;
+    } else if (
+      name === '-' &&
+      parameters[0].valueType.family === VALUE_FAMILY.POINTER &&
+      parameters[1].valueType.family === VALUE_FAMILY.INTEGER
+    ) {
+      return parameters[0].valueType;
+    } else if (
+      name === '-' &&
+      parameters[0].valueType.family === VALUE_FAMILY.POINTER &&
+      parameters[1].valueType.family === VALUE_FAMILY.POINTER
+    ) {
+      return types.int;
+    }
+  }
+
+  return null;
 };
 
 class Parser {
-  tokenizedFile: tokenBlock;
+  tokens: token[];
   ast: AST;
 
-  blockStack: tokenBlock[] = [];
-  get currentBlock() {
-    return this.blockStack[this.blockStack.length - 1];
-  }
-
-  scopeStack: scope[] = [{}];
+  scopeStack: scope[] = [];
   get currentScope() {
     return this.scopeStack[this.scopeStack.length - 1];
   }
 
-  constructor(tokenizedFile: tokenBlock) {
-    this.tokenizedFile = tokenizedFile;
-    this.ast = this.parseBlock(tokenizedFile);
+  constructor(tokens: token[]) {
+    this.tokens = tokens;
+    this.ast = [];
+
+    this.ast.push({
+      opType: OP_TYPES.OPEN_SCOPE,
+      scope: this.pushScope(),
+    });
+
+    this.parseBlock(this.ast);
+
+    this.ast.push({
+      opType: OP_TYPES.CLOSE_SCOPE,
+      scope: this.popScope(),
+    });
   }
 
-  takeNextToken = () => this.currentBlock.contents.shift();
-  peekNextToken = () => this.currentBlock.contents[0];
+  ASTerror = (token: { loc: loc }, message: string) => {
+    if (config.debugAST) {
+      inspect(this.ast);
+    }
 
-  parseBlock = (block: tokenBlock): AST => {
-    this.blockStack.push(block);
-    const ops: AST = [];
+    return compileError(token, '[AST] ' + message);
+  };
 
-    while (block.contents.length) {
-      ops.push(
-        this.parseNextOP({
-          isLH:
-            block.blockType === BLOCK_TYPE.CURLY ||
-            block.blockType === BLOCK_TYPE.FILE,
-        }),
-      );
+  putBackToken = (token: token) => this.tokens.unshift(token);
+  takeNextToken = () => this.tokens.shift();
+  peekNextToken = () => this.tokens[0];
 
-      if (block.blockType === BLOCK_TYPE.ROUND && block.contents.length > 0) {
+  parseBlock = (ast: AST): void => {
+    const block = this.takeNextToken();
+
+    if (block.type !== TOKEN_TYPE.BLOCK_START) {
+      return this.ASTerror(block, `Unexpected ${block.type} token`);
+    }
+    if (
+      block.blockType !== BLOCK_TYPE.CURLY &&
+      block.blockType !== BLOCK_TYPE.FILE
+    ) {
+      return this.ASTerror(block, `Unexpected ${block.blockType} block`);
+    }
+
+    while (
+      !(
+        this.tokens[0].type === TOKEN_TYPE.BLOCK_END &&
+        this.tokens[0].blockType === block.blockType
+      )
+    ) {
+      this.parseNextOpOrControl(ast);
+    }
+
+    // discard block end
+    this.takeNextToken();
+  };
+
+  parseOpsBlock = (ast: AST): void => {
+    const block = this.takeNextToken();
+
+    if (block.type !== TOKEN_TYPE.BLOCK_START) {
+      return this.ASTerror(block, `Unexpected ${block.type} token`);
+    }
+    if (block.blockType !== BLOCK_TYPE.ROUND) {
+      return this.ASTerror(block, `Unexpected ${block.blockType} block`);
+    }
+
+    while (
+      !(
+        this.tokens[0].type === TOKEN_TYPE.BLOCK_END &&
+        this.tokens[0].blockType === block.blockType
+      )
+    ) {
+      this.parseNextOP(ast, {
+        isLH: false,
+      });
+
+      if (
+        block.blockType === BLOCK_TYPE.ROUND &&
+        this.tokens[0].type !== TOKEN_TYPE.BLOCK_END
+      ) {
         if (
-          block.contents[0].type !== TOKEN_TYPE.SPECIAL ||
-          block.contents[0].value !== SPECIAL_CHARS.COMMA
+          this.tokens[0].type !== TOKEN_TYPE.SPECIAL ||
+          this.tokens[0].text !== SPECIAL_CHARS.COMMA
         ) {
-          return compileError(block.contents[0], 'Unexpected instruction');
-        } else if (block.contents.length === 1) {
-          return compileError(block.contents[0], 'Unexpected trailing comma');
+          return this.ASTerror(this.tokens[0], 'Unexpected instruction');
+        } else if (
+          this.tokens[1].type === TOKEN_TYPE.BLOCK_END &&
+          this.tokens[1].blockType !== block.blockType
+        ) {
+          return this.ASTerror(block, 'Unexpected trailing comma');
         } else {
-          block.contents.shift();
+          // discard comma
+          this.takeNextToken();
         }
       }
     }
 
-    this.blockStack.pop();
-    return ops;
+    // discard block end
+    this.takeNextToken();
   };
 
-  parseNextOP = ({ isLH = true } = {}): OP => {
-    const token = this.takeNextToken();
+  parseNextOpOrControl = (ast: AST) => {
+    this.parseIf(ast) ||
+      this.parseWhile(ast) ||
+      this.parseNextOP(ast, { isLH: true });
+  };
 
-    if (token.type === TOKEN_TYPE.BLOCK) {
-      return compileError(
+  parseNextOP = (
+    ast: AST,
+    { isLH = true, allowChain = true } = {},
+    chain?: OP,
+  ) => {
+    const token = this.takeNextToken();
+    let usedChain = false;
+
+    if (!token) return false;
+    if (token.type === TOKEN_TYPE.BLOCK_START) {
+      return this.ASTerror(
         token,
         'A block cannot contain another unassociated block',
       );
     }
 
-    let out: OP;
-
-    if ((out = this.parseNumber(token))) return out;
-    if ((out = this.parseString(token))) return out;
-    if ((out = this.parseChar(token))) return out;
-    if ((out = this.parseCast(token, { isLH }))) return out;
-    if ((out = this.parseDeclaration(token, { isLH }))) return out;
-    if ((out = this.parseUsage(token, { isLH }))) return out;
-    if ((out = this.parseAssignment(token, { isLH }))) return out;
-    if ((out = this.parseFunctionCall(token, { isLH }))) return out;
-    if ((out = this.parseIf(token, { isLH }))) return out;
-    if ((out = this.parseWhile(token, { isLH }))) return out;
-
-    return compileError(token, `Could not parse token ${token.value}`);
-  };
-
-  parseNumber = (token: token, { isLH = true } = {}): IMMEDIATE_OP => {
-    if (token.type !== TOKEN_TYPE.NUMBER) {
-      return null;
-    }
-
-    return {
-      opType: OP_TYPES.IMMEDIATE,
-      isLH: isLH,
-      loc: token.loc,
-      valueType: VALUE_TYPE.INT64,
-      value: token.value,
-    };
-  };
-
-  parseString = (token: token, { isLH = true } = {}): IMMEDIATE_OP => {
-    if (token.type !== TOKEN_TYPE.STRING) {
-      return null;
-    }
-
-    return {
-      opType: OP_TYPES.IMMEDIATE,
-      isLH: isLH,
-      loc: token.loc,
-      valueType: VALUE_TYPE.STRING,
-      value: token.value,
-    };
-  };
-
-  parseChar = (token: token, { isLH = true } = {}): IMMEDIATE_OP => {
-    if (token.type !== TOKEN_TYPE.CHAR) {
-      return null;
-    }
-
-    return {
-      opType: OP_TYPES.IMMEDIATE,
-      isLH: isLH,
-      loc: token.loc,
-      valueType: VALUE_TYPE.CHAR,
-      value: token.value,
-    };
-  };
-
-  parseCast = (token: token, { isLH = true } = {}): OP => {
-    if (
-      token.type !== TOKEN_TYPE.WORD ||
-      !Object.values(VALUE_TYPE).includes(token.value as VALUE_TYPE)
-    ) {
-      return null;
-    }
-
-    const parametersBlock = this.takeNextToken();
-    if (
-      parametersBlock.type !== TOKEN_TYPE.BLOCK ||
-      parametersBlock.blockType !== BLOCK_TYPE.ROUND
-    ) {
-      return compileError(token, 'Missing parameters');
-    }
-
-    const item = this.parseBlock(parametersBlock);
-
-    if (item.length > 1) {
-      return compileError(item[1], 'Too many parameters');
-    }
-
-    const op = item[0] as Exclude<
-      OP,
-      CONTROL_FLOW_IF_OP | CONTROL_FLOW_WHILE_OP
-    >;
-
-    op.valueType = token.value as VALUE_TYPE;
-    op.isLH = isLH;
-
-    return op;
-  };
-
-  parseFunctionCall = (
-    token: token,
-    { isLH = true } = {},
-  ): NATIVE_FUNCTION_CALL_OP => {
-    if (token.type !== TOKEN_TYPE.WORD || !nativeMethods[token.value]) {
-      return null;
-    }
-
-    const methods = nativeMethods[token.value];
-    const parametersBlock = this.takeNextToken();
-    if (
-      parametersBlock.type !== TOKEN_TYPE.BLOCK ||
-      parametersBlock.blockType !== BLOCK_TYPE.ROUND
-    ) {
-      return compileError(token, 'Missing parameters');
-    }
-
-    const parameters = this.parseBlock(parametersBlock);
-
-    const parametersTypes = parameters
-      .map((param) => param.valueType)
-      .join(', ');
-
-    const matchingMethod = methods.find(
-      (method) => method.inputs.join(', ') === parametersTypes,
-    );
-
-    if (!matchingMethod) {
-      return compileError(
+    let op: OP;
+    if (token.type === TOKEN_TYPE.NUMBER) {
+      op = {
+        opType: OP_TYPES.IMMEDIATE,
+        isLH: isLH,
         token,
-        `Could not find function matching "${token.value}(${parametersTypes})"`,
-      );
+        valueType: types.int,
+        value: token.value,
+      };
+    } else if (token.type === TOKEN_TYPE.STRING) {
+      op = {
+        opType: OP_TYPES.IMMEDIATE,
+        isLH: isLH,
+        token,
+        valueType: types.string,
+        value: token.value,
+      };
+    } else if (token.type === TOKEN_TYPE.CHAR) {
+      op = {
+        opType: OP_TYPES.IMMEDIATE,
+        isLH: isLH,
+        token,
+        valueType: types.char,
+        value: token.value,
+      };
     }
 
-    matchingMethod.used = false;
-    return {
-      opType: OP_TYPES.NATIVE_FUNCTION_CALL,
-      function: matchingMethod,
-      isLH: isLH,
-      name: token.value,
-      loc: token.loc,
-      parameters: parameters,
-      valueType: matchingMethod.output,
-    };
-  };
-
-  parseDeclaration = (token: token, { isLH = true } = {}): DECLARATION_OP => {
-    if (
-      token.type !== TOKEN_TYPE.WORD ||
-      !Object.keys(declarationTypeStringMap).includes(token.value)
+    // varibale declaration
+    else if (
+      token.type === TOKEN_TYPE.WORD &&
+      Object.keys(declarationTypeStringMap).includes(token.text)
     ) {
-      return null;
-    }
+      const typeToken: token = this.takeNextToken();
+      let nameToken: token;
+      let type: VALUE_TYPE;
 
-    const typeToken: token = this.takeNextToken();
-    let nameToken: token;
-    let type: VALUE_TYPE;
-    if (typeToken.type !== TOKEN_TYPE.WORD) {
-      return compileError(token, `Missing variable name`);
-    }
+      if (typeToken.type !== TOKEN_TYPE.WORD) {
+        return this.ASTerror(token, `Missing variable name`);
+      }
 
-    if (Object.values(VALUE_TYPE).includes(typeToken.value as VALUE_TYPE)) {
-      type = typeToken.value as VALUE_TYPE;
+      if (typesKeyword.includes(typeToken.text)) {
+        type = types[typeToken.text];
 
-      nameToken = this.takeNextToken();
-
-      while (
-        nameToken.type === TOKEN_TYPE.BLOCK &&
-        nameToken.blockType === BLOCK_TYPE.SQUARE
-      ) {
-        this.parseBlock(nameToken);
         nameToken = this.takeNextToken();
+
+        // while (
+        //   nameToken.type === TOKEN_TYPE.BLOCK_START &&
+        //   nameToken.blockType === BLOCK_TYPE.SQUARE
+        // ) {
+        //   this.parseBlock(nameToken);
+        //   nameToken = this.takeNextToken();
+        // }
+        // type
+      } else {
+        nameToken = typeToken;
       }
-      // type
-    } else {
-      nameToken = typeToken;
+
+      if (nameToken.type !== TOKEN_TYPE.WORD) {
+        return this.ASTerror(token, `Missing variable name`);
+      }
+
+      if (reservedWords.includes(nameToken.text)) {
+        return this.ASTerror(
+          nameToken,
+          `Variable "${nameToken.text}" must not be a reserved word`,
+        );
+      }
+
+      const existing = this.findVariableDeclarationInScope(nameToken.text);
+
+      if (existing) {
+        return this.ASTerror(
+          nameToken,
+          `Variable name "${
+            nameToken.text
+          }" has already been defined at ${locToString(existing.token.loc)}`,
+        );
+      }
+
+      const assignmentToken = this.peekNextToken();
+
+      if (
+        assignmentToken?.type === TOKEN_TYPE.SPECIAL &&
+        assignmentToken?.text === '<-'
+      ) {
+        // pushing back the name so it can be parsed for an assignment
+        this.putBackToken(nameToken);
+      } else {
+        if (!type) {
+          return this.ASTerror(
+            token,
+            `Implicitly typed variable "${nameToken.text}" must be assigned using '<-'`,
+          );
+        }
+      }
+
+      op = {
+        opType: OP_TYPES.DECLARATION,
+        declarationType: declarationTypeStringMap[token.text],
+        isLH,
+        name: nameToken.text,
+        token,
+        valueType: type,
+        stackPos: this.currentScope.size - 1,
+      };
+
+      this.currentScope.vars[op.name] = op;
+      if (type) {
+        op.stackPos += type.size;
+        this.currentScope.size += type.size;
+      }
     }
 
-    if (nameToken.type !== TOKEN_TYPE.WORD) {
-      return compileError(token, `Missing variable name`);
-    }
-
-    if (reservedWords.includes(nameToken.value)) {
-      return compileError(
-        nameToken,
-        `Variable name "${nameToken.value}" must not used a reserved word`,
-      );
-    }
-    const existing = this.findVariableDeclarationInScope(nameToken.value);
-
-    if (existing) {
-      return compileError(
-        nameToken,
-        `Variable name "${
-          nameToken.value
-        }" has already been defined at ${locToString(existing.loc)}`,
-      );
-    }
-
-    const assignmentToken = this.peekNextToken();
-
-    let value: AST = [];
-    if (
-      assignmentToken?.type !== TOKEN_TYPE.SPECIAL ||
-      assignmentToken?.value !== '='
+    // variables usage or assignment
+    else if (
+      token.type === TOKEN_TYPE.WORD &&
+      this.findVariableDeclarationInScope(token.text)
     ) {
-      if (!type) {
-        return compileError(
+      const variableDeclaration = this.findVariableDeclarationInScope(
+        token.text,
+      );
+
+      const nextToken = this.peekNextToken();
+      if (
+        nextToken &&
+        nextToken.type === TOKEN_TYPE.SPECIAL &&
+        nextToken.text === '<-'
+      ) {
+        // this is an assignment
+
+        this.takeNextToken();
+
+        const assignedValue: OP[] = [];
+
+        this.parseNextOP(assignedValue, {
+          isLH: false,
+        });
+
+        if (assignedValue.length > 1) {
+          return this.ASTerror(
+            assignedValue[1].token,
+            'Unexpected instruction',
+          );
+        }
+
+        if (!variableDeclaration.valueType) {
+          variableDeclaration.stackPos += assignedValue[0].valueType.size;
+          this.currentScope.size += assignedValue[0].valueType.size;
+          variableDeclaration.valueType = assignedValue[0].valueType;
+        }
+
+        if (
+          assignedValue[0].valueType.family !==
+          variableDeclaration.valueType.family
+        ) {
+          return this.ASTerror(
+            assignedValue[0].token,
+            `Cannot assign value of type "${assignedValue[0].valueType.name}" to variable of type "${variableDeclaration.valueType.name}"`,
+          );
+        }
+
+        assignedValue[0].valueType = variableDeclaration.valueType;
+
+        op = {
+          opType: OP_TYPES.ASSIGNMENT,
+          declaration: variableDeclaration,
+          isLH: isLH,
+          name: token.text,
           token,
-          `Implicitly typed variable "${nameToken.value}" must be assigned using '='`,
+          valueType: variableDeclaration.valueType,
+          value: assignedValue,
+          stackPos: variableDeclaration.stackPos,
+        };
+      } else {
+        // this is usage
+
+        op = {
+          opType: OP_TYPES.USAGE,
+          declaration: variableDeclaration,
+          name: token.text,
+          isLH: isLH,
+          token,
+          valueType: variableDeclaration.valueType,
+          stackPos: variableDeclaration.stackPos,
+        };
+      }
+    }
+    // native methods
+    else if (token.type === TOKEN_TYPE.WORD && NATIVE_OPERATORS[token.text]) {
+      const parametersBlock = this.peekNextToken();
+
+      const parameters: OP[] = [];
+      if (
+        parametersBlock.type === TOKEN_TYPE.BLOCK_START &&
+        parametersBlock.blockType === BLOCK_TYPE.ROUND
+      ) {
+        this.parseOpsBlock(parameters);
+      } else {
+        this.parseNextOP(parameters, { isLH: false, allowChain: false });
+      }
+
+      // } else {
+      //   return this.ASTerror(token, 'Missing parameters');
+      // }
+
+      if (chain) {
+        parameters.unshift(chain);
+        usedChain = true;
+      }
+      const outputType = algebricOutput(
+        token.text as keyof typeof NATIVE_OPERATORS,
+        parameters,
+      );
+      if (!outputType) {
+        return this.ASTerror(
+          token,
+          `Could not find function matching "${token.text} (${parameters.map(
+            (p) => p.valueType.name,
+          )})"`,
         );
       }
+
+      op = {
+        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
+        nativeType: NATIVE_OPERATORS[token.text],
+        isLH: isLH,
+        token,
+        parameters: parameters,
+        valueType: outputType,
+      };
+    } else if (token.type === TOKEN_TYPE.WORD && token.text === 'exit') {
+      const parametersBlock = this.peekNextToken();
+      if (
+        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
+        parametersBlock.blockType !== BLOCK_TYPE.ROUND
+      ) {
+        return this.ASTerror(token, 'Missing parameters');
+      }
+
+      const parameters: OP[] = [];
+      this.parseOpsBlock(parameters);
+      if (chain) {
+        parameters.unshift(chain);
+        usedChain = true;
+      }
+      if (
+        parameters.length !== 1 ||
+        parameters[0].valueType.family !== VALUE_FAMILY.INTEGER
+      ) {
+        return this.ASTerror(
+          token,
+          `Could not find function matching "${token.text} (${parameters.map(
+            (p) => p.valueType.name,
+          )})"`,
+        );
+      }
+
+      op = {
+        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
+        nativeType: NATIVE_TOOLS[token.text],
+        isLH: isLH,
+        token,
+        parameters: parameters,
+        valueType: types.void,
+      };
+    } else if (token.type === TOKEN_TYPE.WORD && token.text === 'malloc') {
+      const parametersBlock = this.peekNextToken();
+      if (
+        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
+        parametersBlock.blockType !== BLOCK_TYPE.ROUND
+      ) {
+        return this.ASTerror(token, 'Missing parameters');
+      }
+
+      const parameters: OP[] = [];
+      this.parseOpsBlock(parameters);
+      if (chain) {
+        parameters.unshift(chain);
+        usedChain = true;
+      }
+      if (
+        parameters.length !== 1 ||
+        parameters[0].valueType.family !== VALUE_FAMILY.INTEGER
+      ) {
+        return this.ASTerror(
+          token,
+          `Could not find function matching "${token.text} (${parameters.map(
+            (p) => p.valueType.name,
+          )})"`,
+        );
+      }
+
+      op = {
+        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
+        nativeType: NATIVE_TOOLS[token.text],
+        isLH: isLH,
+        token,
+        parameters: parameters,
+        valueType: { ...genericPointer },
+      };
+    } else if (
+      token.type === TOKEN_TYPE.WORD &&
+      NATIVE_MEMORY_WRITE[token.text]
+    ) {
+      const parametersBlock = this.peekNextToken();
+      if (
+        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
+        parametersBlock.blockType !== BLOCK_TYPE.ROUND
+      ) {
+        return this.ASTerror(token, 'Missing parameters');
+      }
+
+      const parameters: OP[] = [];
+      this.parseOpsBlock(parameters);
+      if (chain) {
+        parameters.unshift(chain);
+        usedChain = true;
+      }
+      if (
+        parameters.length !== 2 ||
+        parameters[0].valueType.family !== VALUE_FAMILY.POINTER ||
+        (parameters[1].valueType.family !== VALUE_FAMILY.INTEGER &&
+          parameters[1].valueType.family !== VALUE_FAMILY.POINTER)
+      ) {
+        return this.ASTerror(
+          token,
+          `Could not find function matching "${token.text} (${parameters.map(
+            (p) => p.valueType.name,
+          )})"`,
+        );
+      }
+
+      op = {
+        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
+        nativeType: NATIVE_MEMORY_WRITE[token.text],
+        isLH: isLH,
+        token,
+        parameters: parameters,
+        valueType: types.void,
+      };
+    } else if (
+      token.type === TOKEN_TYPE.WORD &&
+      NATIVE_MEMORY_READ[token.text]
+    ) {
+      const parametersBlock = this.peekNextToken();
+      if (
+        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
+        parametersBlock.blockType !== BLOCK_TYPE.ROUND
+      ) {
+        return this.ASTerror(token, 'Missing parameters');
+      }
+
+      const parameters: OP[] = [];
+      this.parseOpsBlock(parameters);
+      if (chain) {
+        parameters.unshift(chain);
+        usedChain = true;
+      }
+      if (
+        parameters.length !== 1 ||
+        parameters[0].valueType.family !== VALUE_FAMILY.POINTER
+      ) {
+        return this.ASTerror(
+          token,
+          `Could not find function matching "${token.text} (${parameters.map(
+            (p) => p.valueType.name,
+          )})"`,
+        );
+      }
+
+      const outputType: Record<NATIVE_MEMORY_READ, VALUE_TYPE> = {
+        readByte: types.char,
+        readQuad: types.int,
+      };
+
+      op = {
+        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
+        nativeType: NATIVE_MEMORY_READ[token.text],
+        isLH: isLH,
+        token,
+        parameters: parameters,
+        valueType: outputType[token.text],
+      };
+    } else if (token.type === TOKEN_TYPE.WORD && token.text === 'print') {
+      const parametersBlock = this.peekNextToken();
+      if (
+        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
+        parametersBlock.blockType !== BLOCK_TYPE.ROUND
+      ) {
+        return this.ASTerror(token, 'Missing parameters');
+      }
+
+      const parameters: OP[] = [];
+      this.parseOpsBlock(parameters);
+      if (chain) {
+        parameters.unshift(chain);
+        usedChain = true;
+      }
+
+      if (
+        parameters.length > 1 ||
+        (parameters[0].valueType.family !== VALUE_FAMILY.INTEGER &&
+          parameters[0].valueType.family !== VALUE_FAMILY.POINTER &&
+          parameters[0].valueType !== types.string)
+      ) {
+        return this.ASTerror(
+          token,
+          `Could not find function matching "${token.text} (${parameters.map(
+            (p) => p.valueType.name,
+          )})"`,
+        );
+      }
+
+      op = {
+        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
+        nativeType: NATIVE_PRINT[token.text],
+        isLH: isLH,
+        token,
+        parameters: parameters,
+        valueType: types.void,
+      };
+    } else if (token.type === TOKEN_TYPE.WORD && types[token.text]) {
+      const parametersBlock = this.peekNextToken();
+      if (
+        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
+        parametersBlock.blockType !== BLOCK_TYPE.ROUND
+      ) {
+        return this.ASTerror(token, 'Missing parameters');
+      }
+
+      const items: OP[] = [];
+      this.parseOpsBlock(items);
+
+      if (items.length > 1) {
+        return this.ASTerror(items[1].token, 'Too many parameters');
+      }
+      if (items.length < 1) {
+        return this.ASTerror(token, 'Not enough parameters');
+      }
+
+      op = items[0];
+
+      op.valueType = types[token.text];
+      op.isLH = isLH;
     } else {
-      this.takeNextToken();
-      const assignmentOp = this.parseNextOP({
-        isLH: false,
-      });
-
-      if (type && assignmentOp.valueType !== type) {
-        return compileError(
-          assignmentOp,
-          `Cannot assign value of type "${assignmentOp.valueType}" to variable of type ${type}`,
-        );
-      }
-
-      type = assignmentOp.valueType;
-      value = [assignmentOp];
+      return this.ASTerror(token, `Could not parse token ${token.text}`);
     }
 
-    const op: DECLARATION_OP = {
-      opType: OP_TYPES.DECLARATION,
-      declarationType: declarationTypeStringMap[token.value],
-      isInitialised: value.length > 0,
-      isLH,
-      name: nameToken.value,
-      loc: token.loc,
-      valueType: type,
-      value: value,
-    };
-
-    this.currentScope[op.name] = op;
-
-    return op;
-  };
-
-  parseUsage = (token: token, { isLH = true } = {}): USAGE_OP => {
-    if (token.type !== TOKEN_TYPE.WORD) {
-      return null;
+    if (chain && !usedChain) {
+      return this.ASTerror(op.token, `Could not chain ${op.token.text}`);
     }
 
     const nextToken = this.peekNextToken();
     if (
+      allowChain &&
       nextToken &&
       nextToken.type === TOKEN_TYPE.SPECIAL &&
-      nextToken.value === '='
+      nextToken.text === '->'
     ) {
-      // this is an assignment
-      return null;
+      this.takeNextToken();
+      op.isLH = false;
+      this.parseNextOP(ast, { isLH }, op);
+    } else if (
+      allowChain &&
+      nextToken &&
+      nextToken.type === TOKEN_TYPE.WORD &&
+      NATIVE_OPERATORS[nextToken.text]
+    ) {
+      op.isLH = false;
+      this.parseNextOP(ast, { isLH }, op);
+    } else {
+      ast.push(op);
     }
 
-    const variableDeclaration = this.findVariableDeclarationInScope(
-      token.value,
-    );
-    if (!variableDeclaration) {
-      return null;
-    }
-    if (!variableDeclaration.isInitialised) {
-      return compileError(
-        token,
-        `Cannot use uninitialised variable "${token.value}"`,
-      );
-    }
-    const op: USAGE_OP = {
-      opType: OP_TYPES.USAGE,
-      declaration: variableDeclaration,
-      name: token.value,
-      isLH: isLH,
-      loc: token.loc,
-      valueType: variableDeclaration.valueType,
-    };
-
-    return op;
+    return true;
   };
 
-  parseAssignment = (token: token, { isLH = true } = {}): ASSIGNMENT_OP => {
-    if (token.type !== TOKEN_TYPE.WORD) {
-      return null;
-    }
+  // parseCast = (token: token, { isLH = true } = {}): OP => {
+  //
+  // };
 
-    const nextToken = this.peekNextToken();
-    if (nextToken?.type !== TOKEN_TYPE.SPECIAL || nextToken?.value !== '=') {
-      // this is an assignment
-      return null;
-    }
-    this.takeNextToken();
-    const variableDeclaration = this.findVariableDeclarationInScope(
-      token.value,
-    );
-    if (!variableDeclaration) {
-      return null;
-    }
+  parseIf = (ast: AST): boolean => {
+    const token = this.takeNextToken();
 
-    const assignedValue = this.parseNextOP({
-      isLH: false,
-    });
-
-    if (assignedValue.valueType !== variableDeclaration.valueType) {
-      return compileError(
-        assignedValue,
-        `Cannot assign value of type "${assignedValue.valueType}" to variable of type ${variableDeclaration.valueType}`,
-      );
-    }
-
-    variableDeclaration.isInitialised = true;
-
-    const op: ASSIGNMENT_OP = {
-      opType: OP_TYPES.ASSIGNMENT,
-      declaration: variableDeclaration,
-      isLH: isLH,
-      name: token.value,
-      loc: token.loc,
-      valueType: assignedValue.valueType,
-      value: [assignedValue],
-    };
-
-    return op;
-  };
-
-  parseIf = (token: token, { isLH = true } = {}): CONTROL_FLOW_IF_OP => {
     if (
       token.type !== TOKEN_TYPE.WORD ||
-      token.value !== CONTROL_FLOW_KEYWORDS.IF
+      token.text !== CONTROL_FLOW_KEYWORDS.IF
     ) {
-      return null;
+      this.putBackToken(token);
+      return false;
     }
 
-    if (!isLH) {
-      return compileError(
-        token,
-        `${OP_TYPES.IF} instructions cannot appear on the right side of an assignment`,
-      );
-    }
-
+    const conditionBlock = this.peekNextToken();
     if (
-      token.parentBlock.blockType === BLOCK_TYPE.ROUND ||
-      token.parentBlock.blockType === BLOCK_TYPE.SQUARE
-    ) {
-      return compileError(
-        token,
-        `Cannot use if/else inside ${token.parentBlock.blockType} blocks`,
-      );
-    }
-    const conditionBlock = this.takeNextToken();
-    if (
-      conditionBlock.type !== TOKEN_TYPE.BLOCK ||
+      conditionBlock.type !== TOKEN_TYPE.BLOCK_START ||
       conditionBlock.blockType !== BLOCK_TYPE.ROUND
     ) {
-      return compileError(token, 'Missing if condition');
+      return this.ASTerror(token, 'Missing if condition');
     }
     // PARSE CONDITION
 
-    this.pushScope();
-    const condition = this.parseBlock(conditionBlock);
+    const condition: OP[] = [];
+    this.parseOpsBlock(condition);
     if (condition.length > 1) {
-      return compileError(
-        condition[1],
+      return this.ASTerror(
+        condition[1].token,
         'condition block cannot contain more than a condition',
       );
     }
-    if (condition[0].valueType !== VALUE_TYPE.BOOL) {
-      return compileError(condition[0], 'condition must return a boolean');
+    if (condition[0].valueType.family !== VALUE_FAMILY.INTEGER) {
+      return this.ASTerror(
+        condition[0].token,
+        'condition must return a boolean (or compatible type)',
+      );
     }
 
     // PARSE IF BODY
-    let ifBody: AST;
+    const ifBody: AST = [];
     let nextToken = this.peekNextToken();
 
-    this.pushScope();
-    if (nextToken.type === TOKEN_TYPE.BLOCK) {
-      const ifBodyBlock = this.takeNextToken() as tokenBlock;
-      if (ifBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
-        return compileError(
-          ifBodyBlock,
-          `Only ${BLOCK_TYPE.CURLY} blocks are allowed after an if condition`,
-        );
-      }
-      ifBody = this.parseBlock(ifBodyBlock);
+    if (nextToken.type === TOKEN_TYPE.BLOCK_START) {
+      this.parseBlock(ifBody);
     } else {
-      ifBody = [this.parseNextOP()];
+      this.parseNextOpOrControl(ifBody);
     }
-    this.popScope();
 
     // PARSE ELSE BODY
-    let elseBody: AST;
+    const elseBody: AST = [];
     nextToken = this.peekNextToken();
     if (
       nextToken &&
       nextToken.type === TOKEN_TYPE.WORD &&
-      nextToken.value === CONTROL_FLOW_KEYWORDS.ELSE
+      nextToken.text === CONTROL_FLOW_KEYWORDS.ELSE
     ) {
-      this.pushScope();
       this.takeNextToken();
       nextToken = this.peekNextToken();
 
-      if (nextToken.type === TOKEN_TYPE.BLOCK) {
-        const elseBodyBlock = this.takeNextToken() as tokenBlock;
-        if (elseBodyBlock.blockType !== BLOCK_TYPE.CURLY) {
-          return compileError(
-            elseBodyBlock,
-            `Only ${BLOCK_TYPE.CURLY} blocks are allowed after an if condition`,
-          );
-        }
-        elseBody = this.parseBlock(elseBodyBlock);
+      if (nextToken.type === TOKEN_TYPE.BLOCK_START) {
+        this.parseBlock(elseBody);
       } else {
-        elseBody = [this.parseNextOP()];
+        this.parseNextOpOrControl(elseBody);
       }
-
-      this.popScope();
     }
 
-    this.popScope();
-    return {
+    ast.push({
       opType: OP_TYPES.IF,
       condition,
-      loc: token.loc,
+      token,
       ifBody,
       elseBody,
-      valueType: VALUE_TYPE.VOID,
-    };
+      valueType: types.void,
+    });
+
+    return true;
   };
 
-  parseWhile = (token: token, { isLH = true } = {}): CONTROL_FLOW_WHILE_OP => {
+  parseWhile = (ast: AST): boolean => {
+    const token = this.takeNextToken();
     if (
       token.type !== TOKEN_TYPE.WORD ||
-      token.value !== CONTROL_FLOW_KEYWORDS.WHILE
+      token.text !== CONTROL_FLOW_KEYWORDS.WHILE
     ) {
+      this.putBackToken(token);
       return null;
     }
 
-    if (!isLH) {
-      return compileError(
-        token,
-        `${OP_TYPES.WHILE} instructions cannot appear on the right side of an assignment`,
-      );
-    }
-
+    const conditionBlock = this.peekNextToken();
     if (
-      token.parentBlock.blockType === BLOCK_TYPE.ROUND ||
-      token.parentBlock.blockType === BLOCK_TYPE.SQUARE
-    ) {
-      return compileError(
-        token,
-        `Cannot use while inside ${token.parentBlock.blockType} blocks`,
-      );
-    }
-
-    this.pushScope();
-    const conditionBlock = this.takeNextToken();
-    if (
-      conditionBlock.type !== TOKEN_TYPE.BLOCK ||
+      conditionBlock.type !== TOKEN_TYPE.BLOCK_START ||
       conditionBlock.blockType !== BLOCK_TYPE.ROUND
     ) {
-      return compileError(token, 'Missing while condition');
+      return this.ASTerror(token, 'Missing while condition');
     }
 
-    const condition = this.parseBlock(conditionBlock);
+    const condition: OP[] = [];
+    this.parseOpsBlock(condition);
     if (condition.length > 1) {
-      return compileError(
-        condition[1],
+      return this.ASTerror(
+        condition[1].token,
         'condition block cannot contain more than a condition',
       );
     }
-    if (condition[0].valueType !== VALUE_TYPE.BOOL) {
-      return compileError(condition[0], 'condition must return a boolean');
+    if (condition[0].valueType.family !== VALUE_FAMILY.INTEGER) {
+      return this.ASTerror(
+        condition[0].token,
+        'condition must return a boolean',
+      );
     }
-    let body: AST;
+    const body: AST = [];
     const nextToken = this.peekNextToken();
 
-    if (nextToken.type === TOKEN_TYPE.BLOCK) {
-      const bodyBlock = this.takeNextToken() as tokenBlock;
-      if (bodyBlock.blockType !== BLOCK_TYPE.CURLY) {
-        return compileError(
-          bodyBlock,
-          `Only ${BLOCK_TYPE.CURLY} blocks are allowed after a while condition`,
-        );
-      }
-      body = this.parseBlock(bodyBlock);
+    if (nextToken.type === TOKEN_TYPE.BLOCK_START) {
+      this.parseBlock(body);
     } else {
-      body = [this.parseNextOP()];
+      this.parseNextOpOrControl(body);
     }
-    this.popScope();
-    return {
+
+    ast.push({
       opType: OP_TYPES.WHILE,
       condition,
-      loc: token.loc,
+      token,
       body,
-      valueType: VALUE_TYPE.VOID,
-    };
+      valueType: types.void,
+    });
+
+    return true;
   };
 
   findVariableDeclarationInScope = (name: string): DECLARATION_OP => {
-    return this.scopeStack.find((scope) => scope[name])?.[name];
+    return this.scopeStack.find((scope) => scope.vars[name])?.vars[name];
   };
-  pushScope = () => this.scopeStack.push({});
-  popScope = () => this.scopeStack.pop();
+  pushScope = (): scope => {
+    const newScope: scope = { size: 0, vars: {} };
+    this.scopeStack.push(newScope);
+
+    return newScope;
+  };
+  popScope = (): scope => this.scopeStack.pop();
 }

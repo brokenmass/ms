@@ -1,6 +1,6 @@
-const a = 'a'
-const b = 'b'
-const n = '\n'
+const a <- 'a'
+const b <- 'b'
+const n <- '\n'
 
 
 print(a)

@@ -1,6 +1,5 @@
-let hello = "Hello, World\n"
+let hello <- "Hello, World\n"
 
-let test = "test test\n"
+let test <- "test test\n"
 
-print(hello)
-print(test)
+

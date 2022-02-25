@@ -3,9 +3,9 @@
 ## native types
 
 int64
-char
+int8 (alias: char, byte, bool)
 string
-bool
+
 void
 never
 pointer
