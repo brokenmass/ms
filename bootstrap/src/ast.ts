@@ -17,12 +17,15 @@ export enum OP_TYPES {
 export enum NATIVE_OPERATORS {
   '+' = '+',
   '-' = '-',
+  '/' = '/',
+  '*' = '*',
   '%' = '%',
   '<' = '<',
   '<=' = '<=',
   '>' = '>',
   '>=' = '>=',
   '==' = '==',
+  '!=' = '!=',
   '&' = '&',
   '|' = '|',
   '<<' = '<<',
@@ -205,32 +208,37 @@ export const algebricOutput = (
   parameters: OP[],
 ): VALUE_TYPE => {
   if (parameters.length === 2) {
+    const p1 = parameters[0].valueType;
+    const p2 = parameters[1].valueType;
+    let out: VALUE_TYPE;
     if (
-      parameters[0].valueType.family === VALUE_FAMILY.INTEGER &&
-      parameters[1].valueType.family === VALUE_FAMILY.INTEGER
+      p1.family === VALUE_FAMILY.INTEGER &&
+      p2.family === VALUE_FAMILY.INTEGER
     ) {
-      return parameters[0].valueType.size > parameters[1].valueType.size
-        ? parameters[0].valueType
-        : parameters[0].valueType;
+      out = p1.size > p2.size ? { ...p1 } : { ...p2 };
+      out.signed = p1.signed || p2.signed;
     } else if (
       name === '+' &&
-      parameters[0].valueType.family === VALUE_FAMILY.POINTER &&
-      parameters[1].valueType.family === VALUE_FAMILY.INTEGER
+      p1.family === VALUE_FAMILY.POINTER &&
+      p2.family === VALUE_FAMILY.INTEGER
     ) {
-      return parameters[0].valueType;
+      out = { ...p1 };
     } else if (
       name === '-' &&
-      parameters[0].valueType.family === VALUE_FAMILY.POINTER &&
-      parameters[1].valueType.family === VALUE_FAMILY.INTEGER
+      p1.family === VALUE_FAMILY.POINTER &&
+      p2.family === VALUE_FAMILY.INTEGER
     ) {
-      return parameters[0].valueType;
+      out = { ...p1 };
     } else if (
       name === '-' &&
-      parameters[0].valueType.family === VALUE_FAMILY.POINTER &&
-      parameters[1].valueType.family === VALUE_FAMILY.POINTER
+      p1.family === VALUE_FAMILY.POINTER &&
+      p2.family === VALUE_FAMILY.POINTER
     ) {
-      return types.int;
+      out = { ...types.int };
+      out.signed = true;
     }
+
+    return out;
   }
 
   return null;

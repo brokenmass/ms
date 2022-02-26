@@ -1,0 +1,17 @@
+const MAX <- 4000000
+
+let sum <- 0
+let a <- 1
+let b <- 0
+while (a < MAX) {
+  if ( a % 2 == 0) {
+    sum <- sum + a
+  }
+
+  let c <- a
+  a <- a + b
+  b <- c
+}
+
+print("Sum: ")
+print(sum)

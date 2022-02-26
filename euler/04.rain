@@ -1,0 +1,35 @@
+const MAX <- 1000
+
+let i <- MAX / 10
+
+let maxPalindrome <- 0
+
+while (i < MAX) {
+  let j <- MAX / 10
+
+  while (j < MAX) {
+    let val <- i * j
+
+
+    if(val > maxPalindrome) {
+      let test <- val
+      let rev <- 0
+
+      while(test > 0) {
+        let digit <- test % 10
+        rev <- rev * 10 + digit
+        test <- test / 10
+      }
+
+      if( rev == val) {
+        maxPalindrome <- val
+      }
+    }
+    j <- j + 1
+  }
+
+  i <- i + 1
+}
+
+print("maxPalindrome: ")
+print(maxPalindrome)

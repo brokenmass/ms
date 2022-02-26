@@ -1,10 +1,11 @@
-const ALPHABET_LENGTH <- 26
-let array <- malloc(ALPHABET_LENGTH)
+const ALPHABET_LENGTH <- 'z' - 'a'
+let array <- malloc(ALPHABET_LENGTH + 1)
 
 let i <- 0
 
+print(ALPHABET_LENGTH)
 
-while (i < ALPHABET_LENGTH) {
+while (i <= ALPHABET_LENGTH) {
   let pos <- array + i
 
   writeByte(pos, 'a' + i)

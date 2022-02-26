@@ -1,4 +1,7 @@
 **/node_modules
+**/euler/*
+!**/euler/*.rain
+
 **/examples/*
 !**/examples/*.rain
 **/examples/test.rain

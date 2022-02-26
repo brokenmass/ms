@@ -94,7 +94,7 @@ const string: STRUCT_FAMILY = {
 
 export { genericPointer };
 
-export const types: Record<string, VALUE_TYPE> = {
+export const types = {
   int,
   bool,
   char,

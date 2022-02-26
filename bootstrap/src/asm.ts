@@ -18,8 +18,12 @@ const loadIntValue = (
   registry: keyof typeof registries,
   extraOffset = 0,
 ) => {
-  const valueType = op.valueType;
+  let valueType = op.valueType;
 
+  if (op.opType === OP_TYPES.USAGE || op.opType === OP_TYPES.ASSIGNMENT) {
+    // when loading value from memory use native type, not casted one
+    valueType = op.declaration.valueType;
+  }
   let comment = '';
 
   if (op.opType === OP_TYPES.IMMEDIATE) {
@@ -88,7 +92,7 @@ const prebuiltPrint = [
   'print:',
   '  mov r9, -3689348814741910323',
   '  sub rsp, 40',
-  '  mov BYTE [rsp+31], 10',
+  // '  mov BYTE [rsp+31], 10',
   '  lea rcx, [rsp+30]',
   '.L2:',
   '  mov rax, rdi',
@@ -273,6 +277,41 @@ export const generateASM = (ast: AST): string => {
           codePrintLn(storeValue('a', op));
         }
 
+        if (op.nativeType === '%') {
+          codePrintLn(loadIntValue(op.parameters[0], 'a'));
+          codePrintLn(loadIntValue(op.parameters[1], 'b'));
+          codePrintLn(
+            `; ${locToString(op.token.loc)}: [${op.opType}] "${op.token.text}"`,
+          );
+          codePrintLn('xor edx, edx');
+          codePrintLn('div rbx');
+
+          codePrintLn(storeValue('d', op));
+        }
+
+        if (op.nativeType === '/') {
+          codePrintLn(loadIntValue(op.parameters[0], 'a'));
+          codePrintLn(loadIntValue(op.parameters[1], 'b'));
+          codePrintLn(
+            `; ${locToString(op.token.loc)}: [${op.opType}] "${op.token.text}"`,
+          );
+          codePrintLn('xor edx, edx');
+          codePrintLn('div rbx');
+
+          codePrintLn(storeValue('a', op));
+        }
+
+        if (op.nativeType === '*') {
+          codePrintLn(loadIntValue(op.parameters[0], 'a'));
+          codePrintLn(loadIntValue(op.parameters[1], 'b'));
+          codePrintLn(
+            `; ${locToString(op.token.loc)}: [${op.opType}] "${op.token.text}"`,
+          );
+          codePrintLn('mul rbx');
+
+          codePrintLn(storeValue('a', op));
+        }
+
         if (op.nativeType === '==') {
           codePrintLn(loadIntValue(op.parameters[0], 'a'));
           codePrintLn(loadIntValue(op.parameters[1], 'b'));
@@ -284,6 +323,21 @@ export const generateASM = (ast: AST): string => {
 
           codePrintLn('cmp rax, rbx');
           codePrintLn('cmove ecx, edx');
+
+          codePrintLn(storeValue('c', op));
+        }
+
+        if (op.nativeType === '!=') {
+          codePrintLn(loadIntValue(op.parameters[0], 'a'));
+          codePrintLn(loadIntValue(op.parameters[1], 'b'));
+          codePrintLn(
+            `; ${locToString(op.token.loc)}: [${op.opType}] "${op.token.text}"`,
+          );
+          codePrintLn('mov ecx, 0');
+          codePrintLn('mov edx, 1');
+
+          codePrintLn('cmp rax, rbx');
+          codePrintLn('cmovne ecx, edx');
 
           codePrintLn(storeValue('c', op));
         }
@@ -346,18 +400,6 @@ export const generateASM = (ast: AST): string => {
           codePrintLn('cmovge ecx, edx');
 
           codePrintLn(storeValue('c', op));
-        }
-
-        if (op.nativeType === '%') {
-          codePrintLn(loadIntValue(op.parameters[0], 'a'));
-          codePrintLn(loadIntValue(op.parameters[1], 'b'));
-          codePrintLn(
-            `; ${locToString(op.token.loc)}: [${op.opType}] "${op.token.text}"`,
-          );
-          codePrintLn('xor edx, edx');
-          codePrintLn('div rbx');
-
-          codePrintLn(storeValue('d', op));
         }
 
         if (op.nativeType === '&') {

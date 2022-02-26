@@ -1,0 +1,30 @@
+const COUNT <- 10001
+
+const primes <- malloc(COUNT * 8)
+let primesCount <- 1
+writeQuad(primes, 2)
+
+let i <- 3
+while (primesCount < COUNT) {
+  let index <- 0
+  let continue <- 1
+
+  while(continue) {
+
+    if(index >= primesCount) {
+      print("\nFound " )
+      print(primesCount + 1)
+      print(" prime: ")
+      print(i)
+      writeQuad(primes + (primesCount * 8), i)
+      primesCount <- primesCount + 1
+      continue <- 0
+    } else if (i % readQuad(primes + (index * 8)) == 0) {
+      continue <- 0
+    }
+
+    index <- index + 1
+  }
+
+  i <- i + 2
+}

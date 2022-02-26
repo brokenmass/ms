@@ -1,0 +1,22 @@
+const NUMBER <- 600851475143
+
+let maxFactor <- 1
+
+let rest <- NUMBER
+let factor <- 2
+
+while (rest > 1 ) {
+
+  while (rest % factor == 0) {
+    print("FACTOR: ")
+    print(factor)
+    print('\n')
+    maxFactor <- factor
+    rest <- rest / factor
+  }
+
+  factor <- factor + 1
+}
+
+print("MAX: ")
+print(maxFactor)

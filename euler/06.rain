@@ -1,0 +1,22 @@
+const MAX <- 100
+
+let i <- 1
+
+let squareSum <- 0
+let sumSquare <- 0
+while (i <= MAX) {
+  squareSum <- squareSum + (i * i)
+  sumSquare <- sumSquare + i
+
+  i <- i + 1
+}
+
+sumSquare <- sumSquare * sumSquare
+
+
+print("\nsquareSum: ")
+print(squareSum)
+print("\nsumSquare: ")
+print(sumSquare)
+print("\ndiff: ")
+print(sumSquare - squareSum)

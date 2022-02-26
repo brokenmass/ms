@@ -1,0 +1,23 @@
+const MAX <- 20
+
+let i <- 2
+
+let multiple <- 1
+
+while (i <= MAX) {
+  let gcd <- multiple
+  let other <- i
+
+  while (other != 0) {
+    let tmp <- other
+    other <- gcd % other
+    gcd <- tmp
+  }
+
+  multiple <- multiple * i / gcd
+
+  i <- i + 1
+}
+
+print("multiple: ")
+print(multiple)
