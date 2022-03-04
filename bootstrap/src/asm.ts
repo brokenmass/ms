@@ -155,7 +155,8 @@ export const generateASM = (ast: AST): string => {
     ast.forEach((op) => {
       if (op.opType === OP_TYPES.OPEN_SCOPE) {
         if (op.scope.size) {
-          stackIndex += op.scope.size;
+          const actualSize = (op.scope.size + 7) & -8;
+          stackIndex += actualSize;
           codePrintLn('push rbp');
           codePrintLn('mov rbp, rsp');
           Object.values(op.scope.vars).forEach((v) => {
@@ -163,12 +164,15 @@ export const generateASM = (ast: AST): string => {
               `; [rbp - ${v.stackPos}] [${v.valueType.name}] ${v.name}`,
             );
           });
-          codePrintLn(`sub rsp, ${op.scope.size}`);
+          // round to nearest multiple of 8
+
+          codePrintLn(`sub rsp, ${actualSize}`);
         }
       } else if (op.opType === OP_TYPES.CLOSE_SCOPE) {
         if (op.scope.size) {
-          stackIndex -= op.scope.size;
-          codePrintLn(`add rsp, ${op.scope.size}`);
+          const actualSize = (op.scope.size + 7) & -8;
+          stackIndex -= actualSize;
+          codePrintLn(`add rsp, ${actualSize}`);
         }
       } else if (op.opType === OP_TYPES.IF) {
         codePrintLn(`; ${locToString(op.token.loc)}: [${op.opType}]`);

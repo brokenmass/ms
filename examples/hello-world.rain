@@ -1,7 +1,10 @@
 // test comment
-let h <- "Hello, world\n"
-print(h)
 
-let j <- h
+function main() {
+  const h = "Hello, world\n";
+  print(h);
 
-print(j)
+  const j = h;
+
+  print(j);
+}

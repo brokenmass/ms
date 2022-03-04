@@ -1,5 +1,7 @@
-if(==(1000, 1)) {
-  print(1)
-} else {
-  print(2)
+function main() {
+  if(1000 == 1) {
+    print(1);
+  } else {
+    print(2);
+  }
 }

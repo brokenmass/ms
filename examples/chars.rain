@@ -1,12 +1,14 @@
-const a <- 'a'
-const b <- 'b'
-const n <- '\n'
+function main() {
+  const a = 'a';
+  const b = 'b';
+  const n = '\n';
 
 
-print(a)
-print(b)
-print(n)
+  print(a);
+  print(b);
+  print(n);
 
-print('1')
-print('\t')
-print('2')
+  print('1');
+  print('\t');
+  print('2');
+}

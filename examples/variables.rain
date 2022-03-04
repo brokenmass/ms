@@ -1,5 +1,5 @@
-let hello <- "Hello, World\n"
+var hello = "Hello, World\n"
 
-let test <- "test test\n"
+var test = "test test\n"
 
 

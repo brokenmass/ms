@@ -1,9 +1,9 @@
 const MAX <- 100
 
-let i <- 1
+var i <- 1
 
-let squareSum <- 0
-let sumSquare <- 0
+var squareSum <- 0
+var sumSquare <- 0
 while (i <= MAX) {
   squareSum <- squareSum + (i * i)
   sumSquare <- sumSquare + i

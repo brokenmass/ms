@@ -1,9 +1,9 @@
 const NUMBER <- 600851475143
 
-let maxFactor <- 1
+var maxFactor <- 1
 
-let rest <- NUMBER
-let factor <- 2
+var rest <- NUMBER
+var factor <- 2
 
 while (rest > 1 ) {
 

@@ -1,56 +1,55 @@
-const RULE <- 110
-const WIDTH <- 110 // size of the simulation
+function main() {
+  const RULE = 110;
+  const WIDTH = 110; // size of the simulation
 
-let next <- malloc(WIDTH)
-let curr <- malloc(WIDTH)
+  var next = malloc(WIDTH);
+  var curr = malloc(WIDTH);
 
-// TODO: fix this ugly hack to print string by messing with stack memory layout
-let line <- WIDTH + 1
-let lineBuffer <- malloc(WIDTH)
+  // TODO: fix this ugly hack to print string by messing with stack memory layout
+  var line = WIDTH + 1;
+  var lineBuffer = malloc(WIDTH);
 
-writeByte(lineBuffer + WIDTH , '\n')
+  writeByte(lineBuffer + WIDTH , '\n');
 
-let i <- 0
-while (i < WIDTH) {
-  writeByte(curr + i, 0)
-  writeByte(next + i, 0)
-  i <- i + 1
-}
-
-writeByte(curr + WIDTH - 1 , 1)
-
-i <- 0
-
-while (i < (WIDTH - 1)) {
-  let j <- 0
-
-  let char pattern <- readByte(curr) << 1 | readByte(curr + 1)
-
-  while (j < (WIDTH - 1)) {
-
-    pattern <- pattern << 1 & 7 | readByte(curr + j + 1)
-
-    let char nextVal <- RULE >> pattern & 1
-
-    writeByte(next + j, nextVal)
-
-    if (nextVal == 0){
-      writeByte(lineBuffer + j, ' ')
-    } else {
-      writeByte(lineBuffer + j, '+')
-    }
-
-    j <- j + 1
+  var i = 0;
+  while (i < WIDTH) {
+    writeByte(curr + i, 0);
+    writeByte(next + i, 0);
+    i = i + 1;
   }
 
-  print(string(line))
+  writeByte(curr + WIDTH - 1 , 1);
 
-  let tmp <- curr
-  curr <- next
-  next <- tmp
+  i = 0;
 
-  i <- +(i, 1)
+  while (i < (WIDTH - 1)) {
+    var j = 0;
+
+    var pattern = readByte(curr) << 1 | readByte(curr + 1);
+
+    while (j < (WIDTH - 1)) {
+
+      pattern = pattern << 1 & 7 | readByte(curr + j + 1);
+
+      var nextVal = RULE >> pattern & 1;
+
+      writeByte(next + j, nextVal);
+
+      if (nextVal == 0){
+        writeByte(lineBuffer + j, ' ');
+      } else {
+        writeByte(lineBuffer + j, '+');
+      }
+
+      j = j + 1;
+    }
+
+    print(line);
+
+    var tmp = curr;
+    curr = next;
+    next = tmp;
+
+    i = i + 1;
+  }
 }
-
-i <- 0
-

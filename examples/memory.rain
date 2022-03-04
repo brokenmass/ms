@@ -1,24 +1,24 @@
-let mem <-malloc(100)
+var mem =malloc(100)
 
-let pos <-mem
+var pos =mem
 writeByte(pos, 'a')
 
-pos <-+(pos, 1)
+pos =+(pos, 1)
 writeByte(pos, 'b')
 
-pos <-+(pos, 1)
+pos =+(pos, 1)
 writeByte(pos, 'c')
 
 
-pos <- mem
+pos = mem
 print(readByte(pos))
 print('\n')
 
-pos <- +(pos, 1)
+pos = +(pos, 1)
 print(readByte(pos))
 print('\n')
 
-pos <- +(pos, 1)
+pos = +(pos, 1)
 print(readByte(pos))
 
 

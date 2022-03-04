@@ -1,22 +1,22 @@
 const MAX <- 1000
 
-let i <- MAX / 10
+var i <- MAX / 10
 
-let maxPalindrome <- 0
+var maxPalindrome <- 0
 
 while (i < MAX) {
-  let j <- MAX / 10
+  var j <- MAX / 10
 
   while (j < MAX) {
-    let val <- i * j
+    var val <- i * j
 
 
     if(val > maxPalindrome) {
-      let test <- val
-      let rev <- 0
+      var test <- val
+      var rev <- 0
 
       while(test > 0) {
-        let digit <- test % 10
+        var digit <- test % 10
         rev <- rev * 10 + digit
         test <- test / 10
       }

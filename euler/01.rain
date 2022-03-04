@@ -1,7 +1,7 @@
 const MAX <- 1000
 
-let sum <- 0
-let i <- 0
+var sum <- 0
+var i <- 0
 while (i < MAX) {
   if ( i % 3 == 0) {
     sum <- sum + i

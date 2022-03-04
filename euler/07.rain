@@ -1,13 +1,13 @@
 const COUNT <- 10001
 
 const primes <- malloc(COUNT * 8)
-let primesCount <- 1
+var primesCount <- 1
 writeQuad(primes, 2)
 
-let i <- 3
+var i <- 3
 while (primesCount < COUNT) {
-  let index <- 0
-  let continue <- 1
+  var index <- 0
+  var continue <- 1
 
   while(continue) {
 

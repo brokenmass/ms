@@ -1,28 +1,7 @@
-let i <- 10 + 20
-let j <- 50 + 60
+function main() {
+  var i = 10 ;
+  var j = 50 ;
+  var a = 100;
 
-print(i)
-print(j)
-
-i <- i + 100
-print(i + j)
-print(+(i, j))
-print(i -> +(j))
-
-print(%(7,4))
-print(7 % 4)
-
-print(%(i,j))
-print(%(j,i))
-
-print(8 << 3 )
-print(8 -> >>(2))
-
-print(7 & 2)
-print(7 | 2)
-
-print(&(<<(1, 1), 7))
-
-print(i + j + +(100, 100))
-
-print(2 == &(<<(1, 1), 7) )
+  a = i = j = 100;
+}
