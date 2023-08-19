@@ -1,9 +1,11 @@
 import { loc } from './tokenizer';
 import * as util from 'util';
-import { EXPRESSION, EXPRESSION_TYPE, FUNCTION } from './ast-new';
+import { EXPRESSION, EXPRESSION_TYPE, FUNCTION } from './ast';
 import * as chalk from 'chalk';
-export const locToString = (loc: loc): string =>
-  `${loc.file}:${loc.line + 1}:${loc.col + 1}`;
+export const locToString = (loc: loc, fileColor = 'bold'): string =>
+  `${chalk[fileColor].bold(loc.file)}:${chalk.yellow.bold(
+    loc.line + 1,
+  )}:${chalk.yellow.bold(loc.col + 1)}`;
 
 export const compileError = (
   item: {
@@ -11,9 +13,9 @@ export const compileError = (
   },
   error: string,
 ) => {
-  const errorMessage = `${locToString(item.loc)}: ${error}`;
+  const errorMessage = `${locToString(item.loc, 'redBright')}: ${error}`;
   console.error(errorMessage);
-  process.exit(1);
+  throw new Error(errorMessage);
   // throw new Error(errorMessage);
 };
 

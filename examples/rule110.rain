@@ -2,49 +2,46 @@ function main() {
   const RULE = 110;
   const WIDTH = 110; // size of the simulation
 
-  var next = malloc(WIDTH);
-  var curr = malloc(WIDTH);
+  var next;
+  var curr;
+  var lineBuffer;
 
-  // TODO: fix this ugly hack to print string by messing with stack memory layout
-  var line = WIDTH + 1;
-  var lineBuffer = malloc(WIDTH);
-
-  writeByte(lineBuffer + WIDTH , '\n');
+  lineBuffer[ WIDTH]  = '\n';
 
   var i = 0;
   while (i < WIDTH) {
-    writeByte(curr + i, 0);
-    writeByte(next + i, 0);
+    curr[ i] = 0;
+    next[ i] = 0;
     i = i + 1;
   }
 
-  writeByte(curr + WIDTH - 1 , 1);
+  curr[WIDTH - 1] =  1;
 
   i = 0;
 
-  while (i < (WIDTH - 1)) {
+  while (i < WIDTH - 1) {
     var j = 0;
 
-    var pattern = readByte(curr) << 1 | readByte(curr + 1);
+    var pattern = curr[0] << 1 | curr[1];
 
-    while (j < (WIDTH - 1)) {
+    while (j < WIDTH - 1) {
 
-      pattern = pattern << 1 & 7 | readByte(curr + j + 1);
+      pattern = pattern << 1 & 7 | curr[j + 1];
 
       var nextVal = RULE >> pattern & 1;
 
-      writeByte(next + j, nextVal);
+      next[j] = nextVal;
 
       if (nextVal == 0){
-        writeByte(lineBuffer + j, ' ');
+        lineBuffer[j] = ' ';
       } else {
-        writeByte(lineBuffer + j, '+');
+        lineBuffer[j] = '+';
       }
 
       j = j + 1;
     }
 
-    print(line);
+    print(lineBuffer);
 
     var tmp = curr;
     curr = next;

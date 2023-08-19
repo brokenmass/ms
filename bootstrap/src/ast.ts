@@ -1,996 +1,710 @@
-import { BLOCK_TYPE, TOKEN_TYPE, token, loc } from './tokenizer';
-import { compileError, inspect, locToString } from './utils';
-import { genericPointer, types, VALUE_FAMILY, VALUE_TYPE } from './coreTypes';
-import config from './config';
-export enum OP_TYPES {
-  DECLARATION = 'declaration',
-  ASSIGNMENT = 'assignment',
-  USAGE = 'usage',
-  NATIVE_FUNCTION_CALL = 'nativeFunctionCall',
-  IF = 'if',
-  WHILE = 'while',
-  IMMEDIATE = 'immediate',
-  OPEN_SCOPE = 'openScope',
-  CLOSE_SCOPE = 'closeScope',
+import * as chalk from 'chalk';
+import { TOKEN, TOKEN_TYPE } from './tokenizer';
+import { PUNCTUATION, KEYWORD, BINARY_OPERATOR } from './tokens';
+import { compileError } from './utils';
+
+// TODO: keep track of undefined identifiers and check if they are functions defined later in the code (hoisting)
+export enum IDENTIFIER_TYPE {
+  FUNCTION = 'function',
+  PARAMETER = 'parameter',
+  VARIABLE = 'variable',
 }
 
-export enum NATIVE_OPERATORS {
-  '+' = '+',
-  '-' = '-',
-  '/' = '/',
-  '*' = '*',
-  '%' = '%',
-  '<' = '<',
-  '<=' = '<=',
-  '>' = '>',
-  '>=' = '>=',
-  '==' = '==',
-  '!=' = '!=',
-  '&' = '&',
-  '|' = '|',
-  '<<' = '<<',
-  '>>' = '>>',
+export enum EXPRESSION_TYPE {
+  NOP = 'nop',
+  STRING = 'string',
+  NUMBER = 'number',
+  IDENTIFIER = 'identifier',
+  ADD = 'add',
+  MUL = 'mul',
+  DIV = 'div',
+  MOD = 'mod',
+  NEG = 'neg',
+  EQ = 'eq',
+  LT = 'lt',
+  GT = 'gt',
+  OR = 'or',
+  AND = 'and',
+  LOOP = 'loop',
+  BOR = 'bitwiseOr',
+  BXOR = 'bitwiseXor',
+  BAND = 'bitwiseAnd',
+  LSHIFT = 'leftShift',
+  RSHIFT = 'rightShift',
+  ADDRESSOF = 'addressOf',
+  DEREFERENCE = 'dereference',
+  FUNCTION_CALL = 'functionCall',
+  COPY = 'copy',
+  COMMA = 'comma',
+  RETURN = 'return',
 }
 
-export enum NATIVE_PRINT {
-  'print' = 'print',
-}
-
-export enum NATIVE_TOOLS {
-  'exit' = 'exit',
-  'malloc' = 'malloc',
-}
-
-export enum NATIVE_MEMORY_WRITE {
-  'writeByte' = 'writeByte',
-  'writeQuad' = 'writeQuad',
-}
-
-export enum NATIVE_MEMORY_READ {
-  'readByte' = 'readByte',
-  'readQuad' = 'readQuad',
-}
-
-export type NATIVE_FUNCTION_TYPE =
-  | keyof typeof NATIVE_OPERATORS
-  | keyof typeof NATIVE_PRINT
-  | keyof typeof NATIVE_TOOLS
-  | keyof typeof NATIVE_MEMORY_WRITE
-  | keyof typeof NATIVE_MEMORY_READ;
-
-//   {},
-//   NATIVE_ALGEBRIC,
-//   NATIVE_PRINT,
-//   NATIVE_TOOLS,
-//   NATIVE_MEMORY_WRITE,
-//   NATIVE_MEMORY_READ,
-// );
-
-export enum SPECIAL_CHARS {
-  ASSIGN = '=',
-  COMMA = ',',
-}
-
-export enum DECLARATION_KEYWORDS {
-  LET = 'let',
-  CONST = 'const',
-}
-
-export enum CONTROL_FLOW_KEYWORDS {
-  IF = 'if',
-  ELSE = 'else',
-  WHILE = 'while',
-}
-const declarationTypeStringMap = Object.entries(DECLARATION_KEYWORDS).reduce(
-  (ret, [k, v]) => ((ret[v] = k), ret),
-  {},
-);
-
-const typesKeyword = Object.keys(types);
-
-const reservedWords = [
-  ...typesKeyword,
-  ...Object.keys(DECLARATION_KEYWORDS),
-  ...Object.keys(CONTROL_FLOW_KEYWORDS),
-];
-
-export type DECLARATION_OP = {
-  opType: OP_TYPES.DECLARATION;
-  declarationType: DECLARATION_KEYWORDS;
-  isLH: boolean;
+export type IDENTIFIER = {
+  type: IDENTIFIER_TYPE;
+  index: number;
   name: string;
-  token: token;
-  valueType: VALUE_TYPE;
-  stackPos: number;
+  token: TOKEN;
 };
 
-export type ASSIGNMENT_OP = {
-  opType: OP_TYPES.ASSIGNMENT;
-  declaration: DECLARATION_OP;
+type OP_EXPRESSION_TYPE = Exclude<
+  EXPRESSION_TYPE,
+  EXPRESSION_TYPE.IDENTIFIER | EXPRESSION_TYPE.STRING | EXPRESSION_TYPE.NUMBER
+>;
+
+type IDENTIFIER_EXPRESSION = {
+  type: EXPRESSION_TYPE.IDENTIFIER;
+  value: IDENTIFIER;
+  params: EXPRESSION[];
+};
+type STRING_EXPRESSION = {
+  type: EXPRESSION_TYPE.STRING;
+  value: string;
+  params: EXPRESSION[];
+};
+type NUMBER_EXPRESSION = {
+  type: EXPRESSION_TYPE.NUMBER;
+  value: number;
+  params: EXPRESSION[];
+};
+
+export type VALUE_EXPRESSION =
+  | IDENTIFIER_EXPRESSION
+  | NUMBER_EXPRESSION
+  | STRING_EXPRESSION;
+
+export type OP_EXPRESSION = {
+  type: OP_EXPRESSION_TYPE;
+  params: EXPRESSION[];
+  // For loops the first item is the condition and the rest are the code
+  // For fcall, the first parameter is the variable to use as function
+};
+export type EXPRESSION = OP_EXPRESSION | VALUE_EXPRESSION;
+
+export type FUNCTION = {
   name: string;
-  isLH: boolean;
-  token: token;
-  valueType: VALUE_TYPE;
-  value: OP[];
-  stackPos: number;
+  token: TOKEN;
+  code: EXPRESSION;
+  varsCount: number;
+  paramsCount: number;
+  isPure: boolean;
+  isPureDetermined: boolean;
 };
 
-export type USAGE_OP = {
-  opType: OP_TYPES.USAGE;
-  declaration: DECLARATION_OP;
-  isLH: boolean;
-  name: string;
-  token: token;
-  valueType: VALUE_TYPE;
-  stackPos: number;
+export type CONTEXT = {
+  errors: boolean;
+  tokens: TOKEN[];
+  functions: FUNCTION[];
+  scopes: Record<string, IDENTIFIER>[];
+  tmp_count: number;
 };
 
-export type NATIVE_FUNCTION_CALL_OP = {
-  opType: OP_TYPES.NATIVE_FUNCTION_CALL;
-  nativeType: NATIVE_FUNCTION_TYPE;
-  isLH: boolean;
-  token: token;
-  parameters: OP[];
-  valueType: VALUE_TYPE;
-  stackPos?: number;
+const takeToken = (context: CONTEXT) => context.tokens.shift();
+const peekToken = (context: CONTEXT) => context.tokens[0];
+const takeTokenAssert = (
+  context,
+  expectedType: TOKEN_TYPE,
+  expectedText = '',
+): TOKEN => {
+  const stack = chalk.dim(new Error().stack.split('\n')[2].trim());
+  const token = peekToken(context);
+  if (token.type !== expectedType) {
+    context.error = true;
+    return compileError(
+      token,
+      `Expected "${chalk.bold(expectedText)}" ${chalk.dim(
+        '[' + expectedType + ']',
+      )} token but found "${chalk.bold(token.text)}" ${chalk.dim(
+        '[' + token.type + ']',
+      )} instead - ` + stack,
+    );
+  }
+  if (expectedText && token.text !== expectedText) {
+    context.error = true;
+    return compileError(
+      token,
+      `Expected "${chalk.bold(expectedText)}" [${chalk.dim(
+        expectedType,
+      )}] token but found "${chalk.bold(token.text)}" [${chalk.dim(
+        token.type,
+      )}] instead - ` + stack,
+    );
+  }
+  takeToken(context);
+  return token;
 };
-
-export type IMMEDIATE_OP = {
-  opType: OP_TYPES.IMMEDIATE;
-  isLH: boolean;
-  token: token;
-  valueType: VALUE_TYPE;
-  value: string | number;
-  stackPos?: number;
-  label?: string;
-};
-
-export type CONTROL_FLOW_IF_OP = {
-  opType: OP_TYPES.IF;
-  token: token;
-  condition: OP[];
-  ifBody: AST;
-  elseBody: AST;
-  valueType: VALUE_TYPE;
-};
-
-export type CONTROL_FLOW_WHILE_OP = {
-  opType: OP_TYPES.WHILE;
-  token: token;
-  condition: OP[];
-  body: AST;
-  valueType: VALUE_TYPE;
-};
-
-export type OPEN_SCOPE = {
-  opType: OP_TYPES.OPEN_SCOPE;
-  scope: scope;
-};
-
-export type CLOSE_SCOPE = {
-  opType: OP_TYPES.CLOSE_SCOPE;
-  scope: scope;
-};
-
-export type OP =
-  | DECLARATION_OP
-  | ASSIGNMENT_OP
-  | USAGE_OP
-  | NATIVE_FUNCTION_CALL_OP
-  | IMMEDIATE_OP;
-export type CONTROL_OP =
-  | OPEN_SCOPE
-  | CLOSE_SCOPE
-  | CONTROL_FLOW_IF_OP
-  | CONTROL_FLOW_WHILE_OP;
-
-export type AST = (OP | CONTROL_OP)[];
-
-export const generateAST = (tokens: token[]): AST => {
-  const parsed = new Parser(tokens);
-
-  if (config.debugAST) {
-    inspect(parsed.ast);
+const takeTokenIf = (
+  context,
+  expectedType: TOKEN_TYPE,
+  expectedText?: string,
+): TOKEN => {
+  const token = peekToken(context);
+  if (token.type !== expectedType) {
+    return null;
+  }
+  if (expectedText && token.text !== expectedText) {
+    return null;
   }
 
-  return parsed.ast;
+  return takeToken(context);
 };
 
-type scope = {
-  size: number;
-  vars: {
-    [key: string]: DECLARATION_OP;
-  };
-};
+export const makeNumberExp = (value: number): NUMBER_EXPRESSION => ({
+  type: EXPRESSION_TYPE.NUMBER,
+  value,
+  params: [],
+});
+export const makeStringExp = (value: string): STRING_EXPRESSION => ({
+  type: EXPRESSION_TYPE.STRING,
+  value,
+  params: [],
+});
+export const makeIdentifierExp = (
+  value: IDENTIFIER,
+): IDENTIFIER_EXPRESSION => ({
+  type: EXPRESSION_TYPE.IDENTIFIER,
+  value,
+  params: [],
+});
+export const makeOpExp = (
+  type: OP_EXPRESSION_TYPE,
+  ...params: EXPRESSION[]
+): OP_EXPRESSION => ({
+  type,
+  params,
+});
 
-export const algebricOutput = (
-  name: keyof typeof NATIVE_OPERATORS,
-  parameters: OP[],
-): VALUE_TYPE => {
-  if (parameters.length === 2) {
-    const p1 = parameters[0].valueType;
-    const p2 = parameters[1].valueType;
-    let out: VALUE_TYPE;
-    if (
-      p1.family === VALUE_FAMILY.INTEGER &&
-      p2.family === VALUE_FAMILY.INTEGER
-    ) {
-      out = p1.size > p2.size ? { ...p1 } : { ...p2 };
-      out.signed = p1.signed || p2.signed;
-    } else if (
-      name === '+' &&
-      p1.family === VALUE_FAMILY.POINTER &&
-      p2.family === VALUE_FAMILY.INTEGER
-    ) {
-      out = { ...p1 };
-    } else if (
-      name === '-' &&
-      p1.family === VALUE_FAMILY.POINTER &&
-      p2.family === VALUE_FAMILY.INTEGER
-    ) {
-      out = { ...p1 };
-    } else if (
-      name === '-' &&
-      p1.family === VALUE_FAMILY.POINTER &&
-      p2.family === VALUE_FAMILY.POINTER
-    ) {
-      out = { ...types.int };
-      out.signed = true;
-    }
-
-    return out;
+const defineInScope = (
+  context: CONTEXT,
+  type: IDENTIFIER_TYPE,
+  name: string,
+  token: TOKEN,
+) => {
+  const topFunction = context.functions.at(-1);
+  const topContext = context.scopes.at(-1);
+  let index;
+  switch (type) {
+    case IDENTIFIER_TYPE.FUNCTION:
+      index = context.functions.length;
+      break;
+    case IDENTIFIER_TYPE.VARIABLE:
+      index = topFunction.varsCount++;
+      break;
+    case IDENTIFIER_TYPE.PARAMETER:
+      index = topFunction.paramsCount++;
+      break;
   }
 
-  return null;
-};
-
-class Parser {
-  tokens: token[];
-  ast: AST;
-
-  scopeStack: scope[] = [];
-  get currentScope() {
-    return this.scopeStack[this.scopeStack.length - 1];
-  }
-
-  constructor(tokens: token[]) {
-    this.tokens = tokens;
-    this.ast = [];
-
-    this.ast.push({
-      opType: OP_TYPES.OPEN_SCOPE,
-      scope: this.pushScope(),
-    });
-
-    this.parseBlock(this.ast);
-
-    this.ast.push({
-      opType: OP_TYPES.CLOSE_SCOPE,
-      scope: this.popScope(),
-    });
-  }
-
-  ASTerror = (token: { loc: loc }, message: string) => {
-    if (config.debugAST) {
-      inspect(this.ast);
-    }
-
-    return compileError(token, '[AST] ' + message);
+  const identifier = {
+    type,
+    name,
+    index,
+    token,
   };
 
-  putBackToken = (token: token) => this.tokens.unshift(token);
-  takeNextToken = () => this.tokens.shift();
-  peekNextToken = () => this.tokens[0];
+  if (topContext[name]) {
+    return compileError(token, 'identifier already defined');
+  }
+  topContext[name] = identifier;
 
-  parseBlock = (ast: AST): void => {
-    const block = this.takeNextToken();
+  return identifier;
+};
+const findInScope = (context: CONTEXT, name: string, token: TOKEN) => {
+  for (let i = context.scopes.length - 1; i >= 0; --i) {
+    const scope = context.scopes[i];
+    if (scope[name]) return scope[name];
+  }
 
-    if (block.type !== TOKEN_TYPE.BLOCK_START) {
-      return this.ASTerror(block, `Unexpected ${block.type} token`);
-    }
-    if (
-      block.blockType !== BLOCK_TYPE.CURLY &&
-      block.blockType !== BLOCK_TYPE.FILE
-    ) {
-      return this.ASTerror(block, `Unexpected ${block.blockType} block`);
-    }
+  return compileError(token, 'Undefined identifier');
+};
 
-    while (
-      !(
-        this.tokens[0].type === TOKEN_TYPE.BLOCK_END &&
-        this.tokens[0].blockType === block.blockType
+const initialScope: Record<string, IDENTIFIER> = {
+  print: {
+    type: IDENTIFIER_TYPE.FUNCTION,
+    index: -1,
+    token: null,
+    name: 'print',
+  },
+  malloc: {
+    type: IDENTIFIER_TYPE.FUNCTION,
+    index: -1,
+    token: null,
+    name: 'malloc',
+  },
+  writeByte: {
+    type: IDENTIFIER_TYPE.FUNCTION,
+    index: -1,
+    token: null,
+    name: 'writeByte',
+  },
+  readByte: {
+    type: IDENTIFIER_TYPE.FUNCTION,
+    index: -1,
+    token: null,
+    name: 'readByte',
+  },
+};
+
+export const generateAST = (tokens: TOKEN[]) => {
+  // use Recursive Descent Parsing approach
+  const context: CONTEXT = {
+    tokens,
+    errors: false,
+    scopes: [initialScope, {}],
+    tmp_count: 0,
+    functions: [],
+  };
+
+  while (tokens.length) {
+    try {
+      parseFunction(context);
+    } catch (error) {
+      context.errors = true;
+      // recover from function level error: look for next function start;
+      while (
+        context.tokens.length &&
+        peekToken(context).text !== KEYWORD.FUNCTION
       )
-    ) {
-      this.parseNextOpOrControl(ast);
+        takeToken(context);
     }
+  }
 
-    // discard block end
-    this.takeNextToken();
+  if (context.errors) {
+    process.exit(1);
+  }
+  return context;
+};
+
+const parseFunction = (context: CONTEXT) => {
+  const startToken = takeTokenAssert(
+    context,
+    TOKEN_TYPE.KEYWORD,
+    KEYWORD.FUNCTION,
+  );
+  const nameToken = takeTokenAssert(context, TOKEN_TYPE.IDENTIFIER);
+  defineInScope(context, IDENTIFIER_TYPE.FUNCTION, nameToken.text, startToken);
+  context.scopes.push({});
+  const func: FUNCTION = {
+    name: nameToken.text,
+    token: startToken,
+    code: null,
+    isPure: false,
+    isPureDetermined: false,
+    varsCount: 0,
+    paramsCount: 0,
   };
+  context.functions.push(func);
+  takeTokenAssert(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_START);
+  while (!takeTokenIf(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_END)) {
+    const param = takeTokenAssert(context, TOKEN_TYPE.IDENTIFIER);
+    defineInScope(context, IDENTIFIER_TYPE.PARAMETER, param.text, param);
+    takeTokenIf(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_END) ||
+      takeTokenAssert(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.COMMA);
+  }
+  func.code = makeOpExp(
+    EXPRESSION_TYPE.COMMA,
+    parseStatement(context),
+    makeOpExp(EXPRESSION_TYPE.RETURN),
+  );
+  context.scopes.pop();
+};
 
-  parseOpsBlock = (ast: AST): void => {
-    const block = this.takeNextToken();
-
-    if (block.type !== TOKEN_TYPE.BLOCK_START) {
-      return this.ASTerror(block, `Unexpected ${block.type} token`);
+const parseStatement = (context: CONTEXT): EXPRESSION => {
+  if (takeTokenIf(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.COMPOUND_START)) {
+    const exp: EXPRESSION = {
+      type: EXPRESSION_TYPE.COMMA,
+      params: [],
+    };
+    while (!takeTokenIf(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.COMPOUND_END)) {
+      exp.params.push(parseStatement(context));
     }
-    if (block.blockType !== BLOCK_TYPE.ROUND) {
-      return this.ASTerror(block, `Unexpected ${block.blockType} block`);
-    }
 
-    while (
-      !(
-        this.tokens[0].type === TOKEN_TYPE.BLOCK_END &&
-        this.tokens[0].blockType === block.blockType
-      )
+    return exp;
+  }
+
+  if (takeTokenIf(context, TOKEN_TYPE.KEYWORD, KEYWORD.IF)) {
+    takeTokenAssert(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_START);
+    const condition = parseExprs(context);
+    takeTokenAssert(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_END);
+    const ifBody = parseStatement(context);
+
+    if (takeTokenIf(context, TOKEN_TYPE.KEYWORD, KEYWORD.ELSE)) {
+      const elseBody = parseStatement(context);
+
+      // synthesize "if(cond) a else b" as "(cond && (a, 1)) || b"
+      return makeOpExp(
+        EXPRESSION_TYPE.OR,
+        makeOpExp(
+          EXPRESSION_TYPE.AND,
+          condition,
+          makeOpExp(EXPRESSION_TYPE.COMMA, ifBody, makeNumberExp(1)),
+        ),
+        elseBody,
+      );
+    } else {
+      // synthesize "if(cond) a" as "cond && a"
+      return makeOpExp(EXPRESSION_TYPE.AND, condition, ifBody);
+    }
+  }
+
+  if (takeTokenIf(context, TOKEN_TYPE.KEYWORD, KEYWORD.WHILE)) {
+    takeTokenAssert(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_START);
+    const condition = parseExprs(context);
+    takeTokenAssert(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_END);
+    const whileBody = parseStatement(context);
+
+    // synthesize "if(cond) a" as "cond && a"
+    return makeOpExp(EXPRESSION_TYPE.LOOP, condition, whileBody);
+  }
+
+  if (takeTokenIf(context, TOKEN_TYPE.KEYWORD, KEYWORD.RETURN)) {
+    takeTokenAssert(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_START);
+    const returnExpr = parseExprs(context);
+    takeTokenAssert(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_END);
+
+    return {
+      type: EXPRESSION_TYPE.RETURN,
+      params: [returnExpr],
+    };
+  }
+
+  if (takeTokenIf(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.SEMI)) {
+    return {
+      type: EXPRESSION_TYPE.NOP,
+      params: [],
+    };
+  }
+
+  const exp = parseExprs(context);
+
+  try {
+    takeTokenAssert(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.SEMI);
+  } catch (error) {
+    context.errors = true;
+    // recover from missing semicolon: just continue
+    return makeOpExp(EXPRESSION_TYPE.NOP);
+  }
+  return exp;
+};
+
+const parseExprs = (context: CONTEXT): EXPRESSION => {
+  try {
+    if (
+      takeTokenIf(context, TOKEN_TYPE.KEYWORD, KEYWORD.VAR) ||
+      takeTokenIf(context, TOKEN_TYPE.KEYWORD, KEYWORD.CONST)
     ) {
-      this.parseNextOP(ast, {
-        isLH: false,
-      });
+      const commaExp: EXPRESSION = {
+        type: EXPRESSION_TYPE.COMMA,
+        params: [],
+      };
 
-      if (
-        block.blockType === BLOCK_TYPE.ROUND &&
-        this.tokens[0].type !== TOKEN_TYPE.BLOCK_END
-      ) {
-        if (
-          this.tokens[0].type !== TOKEN_TYPE.SPECIAL ||
-          this.tokens[0].text !== SPECIAL_CHARS.COMMA
-        ) {
-          return this.ASTerror(this.tokens[0], 'Unexpected instruction');
-        } else if (
-          this.tokens[1].type === TOKEN_TYPE.BLOCK_END &&
-          this.tokens[1].blockType !== block.blockType
-        ) {
-          return this.ASTerror(block, 'Unexpected trailing comma');
+      let more = false;
+      do {
+        const nameToken = takeTokenAssert(context, TOKEN_TYPE.IDENTIFIER);
+
+        const identifierExp = makeIdentifierExp(
+          defineInScope(
+            context,
+            IDENTIFIER_TYPE.VARIABLE,
+            nameToken.text,
+            nameToken,
+          ),
+        );
+        if (takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.ASSIGN)) {
+          commaExp.params.push(
+            makeOpExp(
+              EXPRESSION_TYPE.COPY,
+              identifierExp,
+              parseExpression(context),
+            ),
+          );
         } else {
-          // discard comma
-          this.takeNextToken();
-        }
-      }
-    }
-
-    // discard block end
-    this.takeNextToken();
-  };
-
-  parseNextOpOrControl = (ast: AST) => {
-    this.parseIf(ast) ||
-      this.parseWhile(ast) ||
-      this.parseNextOP(ast, { isLH: true });
-  };
-
-  parseNextOP = (
-    ast: AST,
-    { isLH = true, allowChain = true } = {},
-    chain?: OP,
-  ) => {
-    const token = this.takeNextToken();
-    let usedChain = false;
-
-    if (!token) return false;
-    if (token.type === TOKEN_TYPE.BLOCK_START) {
-      return this.ASTerror(
-        token,
-        'A block cannot contain another unassociated block',
-      );
-    }
-
-    let op: OP;
-    if (token.type === TOKEN_TYPE.NUMBER) {
-      op = {
-        opType: OP_TYPES.IMMEDIATE,
-        isLH: isLH,
-        token,
-        valueType: types.int,
-        value: token.value,
-      };
-    } else if (token.type === TOKEN_TYPE.STRING) {
-      op = {
-        opType: OP_TYPES.IMMEDIATE,
-        isLH: isLH,
-        token,
-        valueType: types.string,
-        value: token.value,
-      };
-    } else if (token.type === TOKEN_TYPE.CHAR) {
-      op = {
-        opType: OP_TYPES.IMMEDIATE,
-        isLH: isLH,
-        token,
-        valueType: types.char,
-        value: token.value,
-      };
-    }
-
-    // varibale declaration
-    else if (
-      token.type === TOKEN_TYPE.WORD &&
-      Object.keys(declarationTypeStringMap).includes(token.text)
-    ) {
-      const typeToken: token = this.takeNextToken();
-      let nameToken: token;
-      let type: VALUE_TYPE;
-
-      if (typeToken.type !== TOKEN_TYPE.WORD) {
-        return this.ASTerror(token, `Missing variable name`);
-      }
-
-      if (typesKeyword.includes(typeToken.text)) {
-        type = types[typeToken.text];
-
-        nameToken = this.takeNextToken();
-
-        // while (
-        //   nameToken.type === TOKEN_TYPE.BLOCK_START &&
-        //   nameToken.blockType === BLOCK_TYPE.SQUARE
-        // ) {
-        //   this.parseBlock(nameToken);
-        //   nameToken = this.takeNextToken();
-        // }
-        // type
-      } else {
-        nameToken = typeToken;
-      }
-
-      if (nameToken.type !== TOKEN_TYPE.WORD) {
-        return this.ASTerror(token, `Missing variable name`);
-      }
-
-      if (reservedWords.includes(nameToken.text)) {
-        return this.ASTerror(
-          nameToken,
-          `Variable "${nameToken.text}" must not be a reserved word`,
-        );
-      }
-
-      const existing = this.findVariableDeclarationInScope(nameToken.text);
-
-      if (existing) {
-        return this.ASTerror(
-          nameToken,
-          `Variable name "${
-            nameToken.text
-          }" has already been defined at ${locToString(existing.token.loc)}`,
-        );
-      }
-
-      const assignmentToken = this.peekNextToken();
-
-      if (
-        assignmentToken?.type === TOKEN_TYPE.SPECIAL &&
-        assignmentToken?.text === '<-'
-      ) {
-        // pushing back the name so it can be parsed for an assignment
-        this.putBackToken(nameToken);
-      } else {
-        if (!type) {
-          return this.ASTerror(
-            token,
-            `Implicitly typed variable "${nameToken.text}" must be assigned using '<-'`,
-          );
-        }
-      }
-
-      op = {
-        opType: OP_TYPES.DECLARATION,
-        declarationType: declarationTypeStringMap[token.text],
-        isLH,
-        name: nameToken.text,
-        token,
-        valueType: type,
-        stackPos: this.currentScope.size - 1,
-      };
-
-      this.currentScope.vars[op.name] = op;
-      if (type) {
-        op.stackPos += type.size;
-        this.currentScope.size += type.size;
-      }
-    }
-
-    // variables usage or assignment
-    else if (
-      token.type === TOKEN_TYPE.WORD &&
-      this.findVariableDeclarationInScope(token.text)
-    ) {
-      const variableDeclaration = this.findVariableDeclarationInScope(
-        token.text,
-      );
-
-      const nextToken = this.peekNextToken();
-      if (
-        nextToken &&
-        nextToken.type === TOKEN_TYPE.SPECIAL &&
-        nextToken.text === '<-'
-      ) {
-        // this is an assignment
-
-        this.takeNextToken();
-
-        const assignedValue: OP[] = [];
-
-        this.parseNextOP(assignedValue, {
-          isLH: false,
-        });
-
-        if (assignedValue.length > 1) {
-          return this.ASTerror(
-            assignedValue[1].token,
-            'Unexpected instruction',
+          commaExp.params.push(
+            makeOpExp(EXPRESSION_TYPE.COPY, identifierExp, makeNumberExp(0)),
           );
         }
 
-        if (!variableDeclaration.valueType) {
-          variableDeclaration.stackPos += assignedValue[0].valueType.size;
-          this.currentScope.size += assignedValue[0].valueType.size;
-          variableDeclaration.valueType = assignedValue[0].valueType;
+        if (takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.COMMA)) {
+          more = true;
         }
+      } while (more);
 
-        if (
-          assignedValue[0].valueType.family !==
-          variableDeclaration.valueType.family
-        ) {
-          return this.ASTerror(
-            assignedValue[0].token,
-            `Cannot assign value of type "${assignedValue[0].valueType.name}" to variable of type "${variableDeclaration.valueType.name}"`,
-          );
-        }
-
-        assignedValue[0].valueType = variableDeclaration.valueType;
-
-        op = {
-          opType: OP_TYPES.ASSIGNMENT,
-          declaration: variableDeclaration,
-          isLH: isLH,
-          name: token.text,
-          token,
-          valueType: variableDeclaration.valueType,
-          value: assignedValue,
-          stackPos: variableDeclaration.stackPos,
-        };
-      } else {
-        // this is usage
-
-        op = {
-          opType: OP_TYPES.USAGE,
-          declaration: variableDeclaration,
-          name: token.text,
-          isLH: isLH,
-          token,
-          valueType: variableDeclaration.valueType,
-          stackPos: variableDeclaration.stackPos,
-        };
-      }
+      return commaExp;
     }
-    // native methods
-    else if (token.type === TOKEN_TYPE.WORD && NATIVE_OPERATORS[token.text]) {
-      const parametersBlock = this.peekNextToken();
 
-      const parameters: OP[] = [];
-      if (
-        parametersBlock.type === TOKEN_TYPE.BLOCK_START &&
-        parametersBlock.blockType === BLOCK_TYPE.ROUND
-      ) {
-        this.parseOpsBlock(parameters);
-      } else {
-        this.parseNextOP(parameters, { isLH: false, allowChain: false });
-      }
+    const commaExp: EXPRESSION = {
+      type: EXPRESSION_TYPE.COMMA,
+      params: [],
+    };
+    do {
+      commaExp.params.push(parseExpression(context));
+    } while (takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.COMMA));
 
-      // } else {
-      //   return this.ASTerror(token, 'Missing parameters');
-      // }
-
-      if (chain) {
-        parameters.unshift(chain);
-        usedChain = true;
-      }
-      const outputType = algebricOutput(
-        token.text as keyof typeof NATIVE_OPERATORS,
-        parameters,
-      );
-      if (!outputType) {
-        return this.ASTerror(
-          token,
-          `Could not find function matching "${token.text} (${parameters.map(
-            (p) => p.valueType.name,
-          )})"`,
-        );
-      }
-
-      op = {
-        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
-        nativeType: NATIVE_OPERATORS[token.text],
-        isLH: isLH,
-        token,
-        parameters: parameters,
-        valueType: outputType,
-      };
-    } else if (token.type === TOKEN_TYPE.WORD && token.text === 'exit') {
-      const parametersBlock = this.peekNextToken();
-      if (
-        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
-        parametersBlock.blockType !== BLOCK_TYPE.ROUND
-      ) {
-        return this.ASTerror(token, 'Missing parameters');
-      }
-
-      const parameters: OP[] = [];
-      this.parseOpsBlock(parameters);
-      if (chain) {
-        parameters.unshift(chain);
-        usedChain = true;
-      }
-      if (
-        parameters.length !== 1 ||
-        parameters[0].valueType.family !== VALUE_FAMILY.INTEGER
-      ) {
-        return this.ASTerror(
-          token,
-          `Could not find function matching "${token.text} (${parameters.map(
-            (p) => p.valueType.name,
-          )})"`,
-        );
-      }
-
-      op = {
-        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
-        nativeType: NATIVE_TOOLS[token.text],
-        isLH: isLH,
-        token,
-        parameters: parameters,
-        valueType: types.void,
-      };
-    } else if (token.type === TOKEN_TYPE.WORD && token.text === 'malloc') {
-      const parametersBlock = this.peekNextToken();
-      if (
-        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
-        parametersBlock.blockType !== BLOCK_TYPE.ROUND
-      ) {
-        return this.ASTerror(token, 'Missing parameters');
-      }
-
-      const parameters: OP[] = [];
-      this.parseOpsBlock(parameters);
-      if (chain) {
-        parameters.unshift(chain);
-        usedChain = true;
-      }
-      if (
-        parameters.length !== 1 ||
-        parameters[0].valueType.family !== VALUE_FAMILY.INTEGER
-      ) {
-        return this.ASTerror(
-          token,
-          `Could not find function matching "${token.text} (${parameters.map(
-            (p) => p.valueType.name,
-          )})"`,
-        );
-      }
-
-      op = {
-        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
-        nativeType: NATIVE_TOOLS[token.text],
-        isLH: isLH,
-        token,
-        parameters: parameters,
-        valueType: { ...genericPointer },
-      };
-    } else if (
-      token.type === TOKEN_TYPE.WORD &&
-      NATIVE_MEMORY_WRITE[token.text]
+    return commaExp;
+  } catch (error) {
+    context.errors = true;
+    // recover from statement level error: look for next semicolon or closing brackets/parens/braces;
+    let nextToken = peekToken(context);
+    while (
+      nextToken.text !== PUNCTUATION.SEMI &&
+      nextToken.text !== PUNCTUATION.PARENS_END &&
+      nextToken.text !== PUNCTUATION.SUBSCRIPTING_END &&
+      nextToken.text !== PUNCTUATION.COMPOUND_END
     ) {
-      const parametersBlock = this.peekNextToken();
-      if (
-        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
-        parametersBlock.blockType !== BLOCK_TYPE.ROUND
-      ) {
-        return this.ASTerror(token, 'Missing parameters');
-      }
+      takeToken(context);
+      nextToken = peekToken(context);
+    }
+    return makeOpExp(EXPRESSION_TYPE.NOP);
+  }
+};
 
-      const parameters: OP[] = [];
-      this.parseOpsBlock(parameters);
-      if (chain) {
-        parameters.unshift(chain);
-        usedChain = true;
-      }
-      if (
-        parameters.length !== 2 ||
-        parameters[0].valueType.family !== VALUE_FAMILY.POINTER ||
-        (parameters[1].valueType.family !== VALUE_FAMILY.INTEGER &&
-          parameters[1].valueType.family !== VALUE_FAMILY.POINTER)
-      ) {
-        return this.ASTerror(
-          token,
-          `Could not find function matching "${token.text} (${parameters.map(
-            (p) => p.valueType.name,
-          )})"`,
-        );
-      }
+const parseExpression = (context: CONTEXT): EXPRESSION => {
+  // we recursively call expression parsing methods starting from the least priority one
+  // if an operator is left associative we call the next priority parser for both the left and right term
+  // if an operator is right associative we call the the same priority parser for it's right term instead.
+  return parseAssignment(context);
+};
 
-      op = {
-        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
-        nativeType: NATIVE_MEMORY_WRITE[token.text],
-        isLH: isLH,
-        token,
-        parameters: parameters,
-        valueType: types.void,
-      };
-    } else if (
-      token.type === TOKEN_TYPE.WORD &&
-      NATIVE_MEMORY_READ[token.text]
-    ) {
-      const parametersBlock = this.peekNextToken();
-      if (
-        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
-        parametersBlock.blockType !== BLOCK_TYPE.ROUND
-      ) {
-        return this.ASTerror(token, 'Missing parameters');
-      }
+const parseAssignment = (context: CONTEXT): EXPRESSION => {
+  // right associative
+  let expr = parseOr(context);
 
-      const parameters: OP[] = [];
-      this.parseOpsBlock(parameters);
-      if (chain) {
-        parameters.unshift(chain);
-        usedChain = true;
-      }
-      if (
-        parameters.length !== 1 ||
-        parameters[0].valueType.family !== VALUE_FAMILY.POINTER
-      ) {
-        return this.ASTerror(
-          token,
-          `Could not find function matching "${token.text} (${parameters.map(
-            (p) => p.valueType.name,
-          )})"`,
-        );
-      }
+  while (takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.ASSIGN)) {
+    expr = makeOpExp(EXPRESSION_TYPE.COPY, expr, parseAssignment(context));
+  }
 
-      const outputType: Record<NATIVE_MEMORY_READ, VALUE_TYPE> = {
-        readByte: types.char,
-        readQuad: types.int,
-      };
+  return expr;
+};
 
-      op = {
-        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
-        nativeType: NATIVE_MEMORY_READ[token.text],
-        isLH: isLH,
-        token,
-        parameters: parameters,
-        valueType: outputType[token.text],
-      };
-    } else if (token.type === TOKEN_TYPE.WORD && token.text === 'print') {
-      const parametersBlock = this.peekNextToken();
-      if (
-        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
-        parametersBlock.blockType !== BLOCK_TYPE.ROUND
-      ) {
-        return this.ASTerror(token, 'Missing parameters');
-      }
+const parseOr = (context: CONTEXT): EXPRESSION => {
+  let expr = parseAnd(context);
 
-      const parameters: OP[] = [];
-      this.parseOpsBlock(parameters);
-      if (chain) {
-        parameters.unshift(chain);
-        usedChain = true;
-      }
+  while (takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.OR)) {
+    expr = makeOpExp(EXPRESSION_TYPE.OR, expr, parseAnd(context));
+  }
 
-      if (
-        parameters.length > 1 ||
-        (parameters[0].valueType.family !== VALUE_FAMILY.INTEGER &&
-          parameters[0].valueType.family !== VALUE_FAMILY.POINTER &&
-          parameters[0].valueType !== types.string)
-      ) {
-        return this.ASTerror(
-          token,
-          `Could not find function matching "${token.text} (${parameters.map(
-            (p) => p.valueType.name,
-          )})"`,
-        );
-      }
+  return expr;
+};
 
-      op = {
-        opType: OP_TYPES.NATIVE_FUNCTION_CALL,
-        nativeType: NATIVE_PRINT[token.text],
-        isLH: isLH,
-        token,
-        parameters: parameters,
-        valueType: types.void,
-      };
-    } else if (token.type === TOKEN_TYPE.WORD && types[token.text]) {
-      const parametersBlock = this.peekNextToken();
-      if (
-        parametersBlock.type !== TOKEN_TYPE.BLOCK_START ||
-        parametersBlock.blockType !== BLOCK_TYPE.ROUND
-      ) {
-        return this.ASTerror(token, 'Missing parameters');
-      }
+const parseAnd = (context: CONTEXT): EXPRESSION => {
+  let expr = parseBitwiseOr(context);
 
-      const items: OP[] = [];
-      this.parseOpsBlock(items);
+  while (takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.AND)) {
+    expr = makeOpExp(EXPRESSION_TYPE.AND, expr, parseBitwiseOr(context));
+  }
 
-      if (items.length > 1) {
-        return this.ASTerror(items[1].token, 'Too many parameters');
-      }
-      if (items.length < 1) {
-        return this.ASTerror(token, 'Not enough parameters');
-      }
+  return expr;
+};
 
-      op = items[0];
+const parseBitwiseOr = (context: CONTEXT): EXPRESSION => {
+  let expr = parseBitwiseXor(context);
 
-      op.valueType = types[token.text];
-      op.isLH = isLH;
+  while (takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.BOR)) {
+    expr = makeOpExp(EXPRESSION_TYPE.BOR, expr, parseBitwiseXor(context));
+  }
+
+  return expr;
+};
+
+const parseBitwiseXor = (context: CONTEXT): EXPRESSION => {
+  let expr = parseBitwiseAnd(context);
+
+  while (takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.BXOR)) {
+    expr = makeOpExp(EXPRESSION_TYPE.BXOR, expr, parseBitwiseAnd(context));
+  }
+
+  return expr;
+};
+
+const parseBitwiseAnd = (context: CONTEXT): EXPRESSION => {
+  let expr = parseEq(context);
+
+  while (takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.BAND)) {
+    expr = makeOpExp(EXPRESSION_TYPE.BAND, expr, parseEq(context));
+  }
+
+  return expr;
+};
+
+const parseEq = (context: CONTEXT): EXPRESSION => {
+  const expr = parseComparison(context);
+  let operationToken: TOKEN;
+  while (
+    (operationToken =
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.EQ) ||
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.NEQ))
+  ) {
+    const other = parseComparison(context);
+
+    if (operationToken.text === BINARY_OPERATOR.EQ) {
+      return makeOpExp(EXPRESSION_TYPE.EQ, expr, other);
     } else {
-      return this.ASTerror(token, `Could not parse token ${token.text}`);
+      // synthesize "a != b" as "(a==b) == 0"
+      return makeOpExp(
+        EXPRESSION_TYPE.EQ,
+        makeOpExp(EXPRESSION_TYPE.EQ, expr, other),
+        makeNumberExp(0),
+      );
     }
+  }
+  return expr;
+};
 
-    if (chain && !usedChain) {
-      return this.ASTerror(op.token, `Could not chain ${op.token.text}`);
+const parseComparison = (context: CONTEXT): EXPRESSION => {
+  let expr = parseShift(context);
+  let operationToken: TOKEN;
+  while (
+    (operationToken =
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.GT) ||
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.GE) ||
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.LT) ||
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.LE))
+  ) {
+    if (operationToken.text === BINARY_OPERATOR.GT) {
+      expr = makeOpExp(EXPRESSION_TYPE.GT, expr, parseShift(context));
+    } else if (operationToken.text === BINARY_OPERATOR.LT) {
+      expr = makeOpExp(EXPRESSION_TYPE.LT, expr, parseShift(context));
+    } else if (operationToken.text === BINARY_OPERATOR.GE) {
+      // synthesize "a >= b" as "(a < b) == 0"
+      expr = makeOpExp(
+        EXPRESSION_TYPE.EQ,
+        makeOpExp(EXPRESSION_TYPE.LT, expr, parseShift(context)),
+        makeNumberExp(0),
+      );
+    } else if (operationToken.text === BINARY_OPERATOR.LE) {
+      // synthesize "a <= b" as "(a > b) == 0"
+      expr = makeOpExp(
+        EXPRESSION_TYPE.EQ,
+        makeOpExp(EXPRESSION_TYPE.GT, expr, parseShift(context)),
+        makeNumberExp(0),
+      );
     }
+  }
+  return expr;
+};
 
-    const nextToken = this.peekNextToken();
-    if (
-      allowChain &&
-      nextToken &&
-      nextToken.type === TOKEN_TYPE.SPECIAL &&
-      nextToken.text === '->'
-    ) {
-      this.takeNextToken();
-      op.isLH = false;
-      this.parseNextOP(ast, { isLH }, op);
-    } else if (
-      allowChain &&
-      nextToken &&
-      nextToken.type === TOKEN_TYPE.WORD &&
-      NATIVE_OPERATORS[nextToken.text]
-    ) {
-      op.isLH = false;
-      this.parseNextOP(ast, { isLH }, op);
+const parseShift = (context: CONTEXT): EXPRESSION => {
+  const expr = parseSum(context);
+  let operationToken: TOKEN;
+  while (
+    (operationToken =
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.LSHIFT) ||
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.RSHIFT))
+  ) {
+    const type = {
+      [BINARY_OPERATOR.LSHIFT]: EXPRESSION_TYPE.LSHIFT,
+      [BINARY_OPERATOR.RSHIFT]: EXPRESSION_TYPE.RSHIFT,
+    }[operationToken.text] as OP_EXPRESSION_TYPE;
+    return makeOpExp(type, expr, parseShift(context));
+  }
+  return expr;
+};
+
+const parseSum = (context: CONTEXT): EXPRESSION => {
+  let expr = parseFactor(context);
+
+  let operationToken: TOKEN;
+  while (
+    (operationToken =
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.ADD) ||
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.SUB))
+  ) {
+    expr = makeOpExp(EXPRESSION_TYPE.ADD, expr);
+
+    const other = parseFactor(context);
+
+    if (operationToken.text === BINARY_OPERATOR.SUB) {
+      // convert "a - b" to "a + (-b)" . will optimise later if needed
+      expr.params.push(makeOpExp(EXPRESSION_TYPE.NEG, other));
     } else {
-      ast.push(op);
+      expr.params.push(other);
     }
+  }
+  return expr;
+};
 
-    return true;
-  };
+const parseFactor = (context: CONTEXT): EXPRESSION => {
+  let expr = parseUnary(context);
+  let operationToken: TOKEN;
+  while (
+    (operationToken =
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.MUL) ||
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.DIV) ||
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.MOD))
+  ) {
+    const type = {
+      [BINARY_OPERATOR.MUL]: EXPRESSION_TYPE.MUL,
+      [BINARY_OPERATOR.DIV]: EXPRESSION_TYPE.DIV,
+      [BINARY_OPERATOR.MOD]: EXPRESSION_TYPE.MOD,
+    }[operationToken.text] as OP_EXPRESSION_TYPE;
 
-  // parseCast = (token: token, { isLH = true } = {}): OP => {
-  //
-  // };
+    expr = makeOpExp(type, expr, parseUnary(context));
+  }
+  return expr;
+};
+// TODO: add unary operators
+const parseUnary = (context: CONTEXT): EXPRESSION => {
+  return parseFunctionCall(context);
+};
 
-  parseIf = (ast: AST): boolean => {
-    const token = this.takeNextToken();
+const parseFunctionCall = (context: CONTEXT): EXPRESSION => {
+  let expr = parseBrackets(context);
+  while (takeTokenIf(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_START)) {
+    expr = makeOpExp(EXPRESSION_TYPE.FUNCTION_CALL, expr);
 
-    if (
-      token.type !== TOKEN_TYPE.WORD ||
-      token.text !== CONTROL_FLOW_KEYWORDS.IF
-    ) {
-      this.putBackToken(token);
-      return false;
+    while (!takeTokenIf(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_END)) {
+      expr.params.push(parseExpression(context));
+
+      takeTokenIf(context, TOKEN_TYPE.SYMBOL, BINARY_OPERATOR.COMMA);
     }
+  }
 
-    const conditionBlock = this.peekNextToken();
-    if (
-      conditionBlock.type !== TOKEN_TYPE.BLOCK_START ||
-      conditionBlock.blockType !== BLOCK_TYPE.ROUND
-    ) {
-      return this.ASTerror(token, 'Missing if condition');
-    }
-    // PARSE CONDITION
+  return expr;
+};
 
-    const condition: OP[] = [];
-    this.parseOpsBlock(condition);
-    if (condition.length > 1) {
-      return this.ASTerror(
-        condition[1].token,
-        'condition block cannot contain more than a condition',
-      );
-    }
-    if (condition[0].valueType.family !== VALUE_FAMILY.INTEGER) {
-      return this.ASTerror(
-        condition[0].token,
-        'condition must return a boolean (or compatible type)',
-      );
-    }
+const parseBrackets = (context: CONTEXT): EXPRESSION => {
+  let expr = parseParens(context);
+  while (
+    takeTokenIf(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.SUBSCRIPTING_START)
+  ) {
+    const inner = parseExprs(context);
+    expr = makeOpExp(
+      EXPRESSION_TYPE.DEREFERENCE,
+      makeOpExp(EXPRESSION_TYPE.ADD, expr, inner),
+    );
 
-    // PARSE IF BODY
-    const ifBody: AST = [];
-    let nextToken = this.peekNextToken();
+    takeTokenAssert(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.SUBSCRIPTING_END);
+  }
+  return expr;
+};
 
-    if (nextToken.type === TOKEN_TYPE.BLOCK_START) {
-      this.parseBlock(ifBody);
-    } else {
-      this.parseNextOpOrControl(ifBody);
-    }
+const parseParens = (context: CONTEXT): EXPRESSION => {
+  if (takeTokenIf(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_START)) {
+    const expr = parseExprs(context);
 
-    // PARSE ELSE BODY
-    const elseBody: AST = [];
-    nextToken = this.peekNextToken();
-    if (
-      nextToken &&
-      nextToken.type === TOKEN_TYPE.WORD &&
-      nextToken.text === CONTROL_FLOW_KEYWORDS.ELSE
-    ) {
-      this.takeNextToken();
-      nextToken = this.peekNextToken();
+    takeTokenAssert(context, TOKEN_TYPE.SYMBOL, PUNCTUATION.PARENS_END);
 
-      if (nextToken.type === TOKEN_TYPE.BLOCK_START) {
-        this.parseBlock(elseBody);
-      } else {
-        this.parseNextOpOrControl(elseBody);
-      }
-    }
+    return expr;
+  }
+  return parseImmediate(context);
+};
 
-    ast.push({
-      opType: OP_TYPES.IF,
-      condition,
-      token,
-      ifBody,
-      elseBody,
-      valueType: types.void,
-    });
+const parseImmediate = (context: CONTEXT): EXPRESSION => {
+  const token = takeToken(context);
 
-    return true;
-  };
-
-  parseWhile = (ast: AST): boolean => {
-    const token = this.takeNextToken();
-    if (
-      token.type !== TOKEN_TYPE.WORD ||
-      token.text !== CONTROL_FLOW_KEYWORDS.WHILE
-    ) {
-      this.putBackToken(token);
-      return null;
-    }
-
-    const conditionBlock = this.peekNextToken();
-    if (
-      conditionBlock.type !== TOKEN_TYPE.BLOCK_START ||
-      conditionBlock.blockType !== BLOCK_TYPE.ROUND
-    ) {
-      return this.ASTerror(token, 'Missing while condition');
-    }
-
-    const condition: OP[] = [];
-    this.parseOpsBlock(condition);
-    if (condition.length > 1) {
-      return this.ASTerror(
-        condition[1].token,
-        'condition block cannot contain more than a condition',
-      );
-    }
-    if (condition[0].valueType.family !== VALUE_FAMILY.INTEGER) {
-      return this.ASTerror(
-        condition[0].token,
-        'condition must return a boolean',
-      );
-    }
-    const body: AST = [];
-    const nextToken = this.peekNextToken();
-
-    if (nextToken.type === TOKEN_TYPE.BLOCK_START) {
-      this.parseBlock(body);
-    } else {
-      this.parseNextOpOrControl(body);
-    }
-
-    ast.push({
-      opType: OP_TYPES.WHILE,
-      condition,
-      token,
-      body,
-      valueType: types.void,
-    });
-
-    return true;
-  };
-
-  findVariableDeclarationInScope = (name: string): DECLARATION_OP => {
-    return this.scopeStack.find((scope) => scope.vars[name])?.vars[name];
-  };
-  pushScope = (): scope => {
-    const newScope: scope = { size: 0, vars: {} };
-    this.scopeStack.push(newScope);
-
-    return newScope;
-  };
-  popScope = (): scope => this.scopeStack.pop();
-}
+  if (token.type === TOKEN_TYPE.NUM_CONST) {
+    return makeNumberExp(token.value);
+  } else if (token.type === TOKEN_TYPE.CHAR_CONST) {
+    return makeNumberExp(token.value.charCodeAt(0));
+  } else if (token.type === TOKEN_TYPE.STRING_CONST) {
+    return makeStringExp(token.value);
+  } else if (token.type === TOKEN_TYPE.IDENTIFIER) {
+    return makeIdentifierExp(findInScope(context, token.text, token));
+  } else if (
+    token.type === TOKEN_TYPE.KEYWORD &&
+    (token.text === KEYWORD.TRUE || token.text === KEYWORD.FALSE)
+  ) {
+    return makeNumberExp(Number(token.text === KEYWORD.TRUE));
+  } else {
+    return compileError(token, `Unrecognised token "${token.text}"`);
+  }
+};

@@ -1,31 +1,32 @@
 grammar rain;
 
-WS : [ \t\r\n]+ -> skip ; // skip spaces, tabs, newlines
+WS : [ \t\v\r\n]+ -> skip ; // skip spaces, tabs, newlines
 IDENTIFIER: [a-zA-Z_][a-zA-Z0-9_]+;
-NUMCONST: [0-9]+;
+NUMCONST: [0-9]+ | '0x'[0-9A-Fa-f]+ | '0b'[01]+;
 CHARCONST: '\'' . '\'';
 STRINGCONST: '"' [^"] '"';
-oneOrMoreID: IDENTIFIER (',' IDENTIFIER)*;
+oneOrMoreID: IDENTIFIER (':' IDENTIFIER '[]'*) (',' IDENTIFIER (':' IDENTIFIER '[]'*))*;
 
+type: IDENTIFIER ('[' expression ']')*;
 function: 'function' IDENTIFIER '(' oneOrMoreID? ')' '{' statement '}';
 
 statement: '{' statement* '}'
- | 'if' '(' exprs ')'  statement ('else' statement )?
- | 'while' '(' exprs ')' statement
- | 'return' '(' exprs ')' ';'
- | exprs ';'
+ | 'if' '(' expressionOrDeclaration ')'  statement ('else' statement )?
+ | 'while' '(' expressionOrDeclaration ')' statement
+ | 'return' '(' expressionOrDeclaration ')' ';'
+ | expressionOrDeclaration ';'
  | ';';
 
-exprs:  'var' IDENTIFIER ('=' expression)? (',' IDENTIFIER ('=' expression)?)*
-  | 'const' IDENTIFIER '=' expression (',' IDENTIFIER '=' expression)*
+expressionOrDeclaration:  'var' IDENTIFIER (':' type)? ('=' expression)? (',' IDENTIFIER (':' type)? ('=' expression)?)*
+  | 'const' IDENTIFIER (':' type)? '=' expression (',' IDENTIFIER (':' type)? '=' expression)*
   | expression (',' expression)*;
 
 expression: NUMCONST
   | CHARCONST
   | STRINGCONST
   | IDENTIFIER
-  | '(' exprs ')'
-  | '[' exprs ']'
+  | '(' expressionOrDeclaration ')'
+  | '[' expressionOrDeclaration ']'
   | expression '(' (expression (',' expression)* )? ')'
   | ('++' | '--' | '!' | '@' | '#' ) expression
   | expression ('++' | '--')
@@ -39,4 +40,4 @@ expression: NUMCONST
   | expression ('|') expression
   | expression ('&&') expression
   | expression ('||') expression
-  | expression '=' expression;
+  | expression ('=') expression;

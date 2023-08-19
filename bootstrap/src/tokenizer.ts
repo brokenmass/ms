@@ -1,31 +1,7 @@
 import * as fs from 'fs';
 import config from './config';
-import { compileError } from './utils';
-
-const EMPTY_CHARS = ' \r\n';
-const SPECIAL_CHARS = '.,';
-
-const BLOCK_OPENING_CHARS = '([{';
-const BLOCK_CLOSING_CHARS = ')]}';
-const NUMBER_CHARS = '01234567890';
-
-export enum BLOCK_TYPE {
-  FILE = 'file',
-  CURLY = '{}',
-  ROUND = '()',
-  SQUARE = '[]',
-}
-
-export enum TOKEN_TYPE {
-  COMMENT = 'comment',
-  NUMBER = 'number',
-  STRING = 'string',
-  CHAR = 'char',
-  WORD = 'word',
-  SPECIAL = 'special',
-  BLOCK_START = 'block start',
-  BLOCK_END = 'block end',
-}
+import { BINARY_OPERATOR, KEYWORD, UNARY_OPERATOR } from './tokens';
+import { compileError, locToString } from './utils';
 
 export type loc = {
   file: string;
@@ -34,309 +10,251 @@ export type loc = {
   index: number;
 };
 
-export type tokenValue = {
-  type: TOKEN_TYPE.STRING | TOKEN_TYPE.NUMBER | TOKEN_TYPE.CHAR;
-  text: string;
-  value: string | number;
-  loc: loc;
-};
-export type tokenElement = {
-  type: TOKEN_TYPE.WORD | TOKEN_TYPE.SPECIAL;
-  text: string;
-  loc: loc;
-};
-export type tokenBlock = {
-  type: TOKEN_TYPE.BLOCK_START | TOKEN_TYPE.BLOCK_END;
-  text: string;
-  blockType: BLOCK_TYPE;
-  loc: loc;
-};
+export enum TOKEN_TYPE {
+  NUM_CONST = 'number',
+  CHAR_CONST = 'char',
+  STRING_CONST = 'string',
+  IDENTIFIER = 'identifier',
+  KEYWORD = 'keyword',
+  SYMBOL = 'symbol',
+}
 
-export type token = tokenElement | tokenBlock | tokenValue;
-class FileReader {
-  loc: loc;
-  text: string;
-
-  constructor(filename: string) {
-    this.loc = {
-      file: filename,
-      line: 0,
-      col: 0,
-      index: 0,
+export type CONST_TOKEN =
+  | {
+      type: TOKEN_TYPE.CHAR_CONST | TOKEN_TYPE.STRING_CONST;
+      value: string;
+      text: string;
+      loc: loc;
+    }
+  | {
+      type: TOKEN_TYPE.NUM_CONST;
+      value: number;
+      text: string;
+      loc: loc;
     };
 
-    this.text = fs.readFileSync(filename, 'utf-8');
-  }
-
-  advanceToEndOf = (check: charTypeChecker) => {
-    while (
-      this.loc.index < this.text.length &&
-      check(this.text, this.loc.index + 1)
-    ) {
-      this.advanceByOne();
-    }
-  };
-  advanceTo = (check: charTypeChecker) => {
-    while (
-      this.loc.index < this.text.length &&
-      !check(this.text, this.loc.index)
-    ) {
-      this.advanceByOne();
-    }
-  };
-
-  advanceByOne = () => {
-    if (this.text[this.loc.index] === '\n') {
-      this.loc.col = 0;
-      this.loc.line++;
-    } else {
-      this.loc.col++;
-    }
-    this.loc.index++;
-  };
-
-  getToken = (start: number, end: number) => {
-    return this.text.substring(start, end);
-  };
-
-  get currentChar() {
-    return this.text[this.loc.index];
-  }
-  get prevChar() {
-    return this.text[this.loc.index - 1];
-  }
-  get nextChar() {
-    return this.text[this.loc.index + 1];
-  }
-
-  get isEOF() {
-    return this.loc.index > this.text.length - 1;
-  }
-}
-const unescapeString = (str: string): string => {
-  const mapping = {
-    n: '\n',
-    '\\': '\\',
-    r: '\r',
-    t: '\t',
-  };
-  let out = '';
-  for (let i = 0; i < str.length; i++) {
-    if (str[i] === '\\' && mapping[str[i + 1]]) {
-      out += mapping[str[i + 1]];
-      i++;
-    } else {
-      out += str[i];
-    }
-  }
-
-  return out;
-};
-type charTypeChecker = (text: string, index?: number) => boolean;
-
-const blockTypesChars = {
-  '{': BLOCK_TYPE.CURLY,
-  '}': BLOCK_TYPE.CURLY,
-  '(': BLOCK_TYPE.ROUND,
-  ')': BLOCK_TYPE.ROUND,
-  '[': BLOCK_TYPE.SQUARE,
-  ']': BLOCK_TYPE.SQUARE,
+export type IDENTIFIER_TOKEN = {
+  type: TOKEN_TYPE.IDENTIFIER;
+  text: string;
+  loc: loc;
 };
 
-const isEscape: charTypeChecker = (text: string, index = 0) =>
-  text[index] === '\\' && !isEscape(text, index - 1);
-const isEOL: charTypeChecker = (text: string, index = 0) =>
-  '\n'.includes(text[index]);
-const isNotEmpty: charTypeChecker = (text: string, index = 0) =>
-  !EMPTY_CHARS.includes(text[index]);
-const isSpecialChar: charTypeChecker = (text: string, index = 0) =>
-  SPECIAL_CHARS.includes(text[index]);
-const isArrow: charTypeChecker = (text: string, index = 0) => {
-  const t = text[index] + text[index + 1];
-  return (t === '->' || t === '<-') && !isEscape(text, index - 1);
+export type KEYWORD_TOKEN = {
+  type: TOKEN_TYPE.KEYWORD;
+  text: string;
+  loc: loc;
 };
-const isBlockOpening: charTypeChecker = (text: string, index = 0) =>
-  BLOCK_OPENING_CHARS.includes(text[index]);
-const isBlockClosing: charTypeChecker = (text: string, index = 0) =>
-  BLOCK_CLOSING_CHARS.includes(text[index]);
-const isNumber: charTypeChecker = (text: string, index = 0) =>
-  NUMBER_CHARS.includes(text[index]);
-const isEdgeOfString: charTypeChecker = (text: string, index = 0) =>
-  text[index] == '"' && !isEscape(text, index - 1);
-const isEdgeOfChar: charTypeChecker = (text: string, index = 0) =>
-  text[index] == "'" && !isEscape(text, index - 1);
-const isWord: charTypeChecker = (text: string, index = 0) =>
-  isNotEmpty(text, index) &&
-  !isEscape(text, index) &&
-  !isSpecialChar(text, index) &&
-  !isArrow(text, index) &&
-  !isBlockOpening(text, index) &&
-  !isBlockClosing(text, index) &&
-  !isEdgeOfString(text, index) &&
-  !isEdgeOfChar(text, index);
 
-const locToString = (loc: loc) => `${loc.file}:${loc.line + 1}:${loc.col + 1}`;
+export type SYMBOL_TOKEN = {
+  type: TOKEN_TYPE.SYMBOL;
+  text: string;
+  loc: loc;
+};
 
-const printTokenized = (tokens: token[]) => {
-  let indent = 0;
+export type TOKEN =
+  | CONST_TOKEN
+  | IDENTIFIER_TOKEN
+  | KEYWORD_TOKEN
+  | SYMBOL_TOKEN;
+
+const NUMBER_CHARS = '01234567890';
+const HEX_CHARS = '01234567890ABCDEFabcdef';
+const ALPHA_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_';
+const APLHANUM_CHARS = ALPHA_CHARS + NUMBER_CHARS;
+const DUALCHARS_OPERATORS = [
+  ...Object.values(BINARY_OPERATOR),
+  ...Object.values(UNARY_OPERATOR),
+].filter((op) => op.length == 2);
+
+const shouldInsertSemicolon = (token: TOKEN) =>
+  token.type === TOKEN_TYPE.IDENTIFIER ||
+  (token.type === TOKEN_TYPE.KEYWORD && ['return'].includes(token.text)) ||
+  (token.type === TOKEN_TYPE.SYMBOL && ['--', '++'].includes(token.text));
+
+const isWhiteSpace = (char: string) => ' \r\t\v'.includes(char);
+const isNewline = (char: string) => char === '\n';
+const isDecNumber = (char: string) => NUMBER_CHARS.includes(char);
+const isHexNumber = (char: string) => HEX_CHARS.includes(char);
+const isBinaryNumber = (char: string) => '01'.includes(char);
+const isAlpha = (char: string) => ALPHA_CHARS.includes(char);
+const isAlphaNum = (char: string) => APLHANUM_CHARS.includes(char);
+const isDualCharOperator = (chars: string) =>
+  DUALCHARS_OPERATORS.includes(chars as BINARY_OPERATOR | UNARY_OPERATOR);
+
+const printTokenized = (tokens: TOKEN[]) => {
   tokens.forEach((item) => {
-    if (item.type === TOKEN_TYPE.BLOCK_END) {
-      indent -= 2;
-    }
-
-    console.log(
-      `${' '.repeat(indent)}  - ${locToString(item.loc)}: [${item.type}] "${
-        item.text
-      }"`,
-    );
-    if (item.type === TOKEN_TYPE.BLOCK_START) {
-      indent += 2;
-    }
+    console.log(`${locToString(item.loc)}: [${item.type}] "${item.text}"`);
   });
 };
 
-const escapeString = (str: string): string => str.replace(/\n/g, '\\n');
+const tokenizer = (filename: string): TOKEN[] => {
+  const currenLoc: loc = {
+    file: filename,
+    col: 0,
+    line: 0,
+    index: 0,
+  };
 
-const tokenizer = (filename: string): token[] => {
-  const reader = new FileReader(filename);
+  const tokens: TOKEN[] = [];
+  const text = fs.readFileSync(filename, 'utf-8');
 
-  const tokenizedFile: token[] = [
-    {
-      type: TOKEN_TYPE.BLOCK_START,
-      blockType: BLOCK_TYPE.FILE,
-      text: filename,
-      loc: { ...reader.loc },
-    },
-  ];
+  const advance = () => {
+    if (isNewline(text[currenLoc.index])) {
+      currenLoc.line++;
+      currenLoc.col = 0;
+    } else {
+      currenLoc.col++;
+    }
 
-  const blockStack: tokenBlock[] = [];
-  reader.advanceTo(isNotEmpty);
-  while (!reader.isEOF) {
-    const start = { ...reader.loc };
+    currenLoc.index++;
+  };
 
-    if (reader.currentChar === '/' && reader.nextChar === '/') {
-      reader.advanceTo(isEOL);
-      // const value = reader.getToken(start.index + 2, reader.loc.index);
-      // tokenizedFile.push({
-      //   type: TOKEN_TYPE.COMMENT,
-      //   loc: start,
-      //   value,
-      // });
-    } else if (isEdgeOfString(reader.currentChar)) {
-      reader.advanceByOne();
-      reader.advanceTo(isEdgeOfString);
-      const token = reader.getToken(start.index + 1, reader.loc.index);
-      const text = escapeString(token);
-      const value = unescapeString(token);
-      tokenizedFile.push({
-        type: TOKEN_TYPE.STRING,
+  const isEOF = () => currenLoc.index >= text.length;
+
+  while (currenLoc.index < text.length) {
+    const currentChar = text[currenLoc.index];
+    const nextChar = text[currenLoc.index + 1];
+    const next2Chars = currentChar + nextChar;
+
+    if (isWhiteSpace(currentChar)) {
+      // ignore
+    } else if (isNewline(currentChar)) {
+      if (tokens.length > 0 && shouldInsertSemicolon(tokens.at(-1))) {
+        // TODO: define ASI logic
+        // tokens.push({
+        //   type: TOKEN_TYPE.SYMBOL,
+        //   loc: { ...currenLoc },
+        //   text: ';',
+        // });
+      }
+    } else if (isDecNumber(currentChar)) {
+      const start = { ...currenLoc };
+      if (currentChar === '0' && nextChar === 'b') {
+        // binary
+        while (isBinaryNumber(text[currenLoc.index + 1])) advance();
+      } else if (currentChar === '0' && nextChar === 'x') {
+        // binary
+        while (isHexNumber(text[currenLoc.index + 1])) advance();
+      } else {
+        // decimal
+        while (isDecNumber(text[currenLoc.index + 1])) advance();
+      }
+
+      const num = text.substring(start.index, currenLoc.index + 1);
+      tokens.push({
+        type: TOKEN_TYPE.NUM_CONST,
         loc: start,
-        text,
-        value,
+        text: num,
+        value: parseInt(num),
       });
-    } else if (isEdgeOfChar(reader.currentChar)) {
-      reader.advanceByOne();
-      reader.advanceTo(isEdgeOfChar);
-      const token = reader.getToken(start.index + 1, reader.loc.index);
-      const text = escapeString(token);
-      const value = unescapeString(token);
-      if (value.length > 1) {
+    } else if (currentChar === '"') {
+      const start = { ...currenLoc };
+      let escape = false;
+      let tokenText = '';
+      advance();
+      while (!isEOF() && (text[currenLoc.index] !== '"' || escape)) {
+        if (escape) {
+          tokenText += JSON.parse(`"\\${text[currenLoc.index]}"`);
+          escape = false;
+        } else if (text[currenLoc.index] === '\\') {
+          escape = true;
+        } else {
+          tokenText += text[currenLoc.index];
+        }
+        advance();
+      }
+
+      if (isEOF()) {
+        return compileError({ loc: start }, 'Unterminated string');
+      }
+
+      tokens.push({
+        type: TOKEN_TYPE.STRING_CONST,
+        loc: start,
+        text: text
+          .substring(start.index + 1, currenLoc.index)
+          .replace(/\n/g, '\\n'),
+        value: tokenText,
+      });
+    } else if (currentChar === "'") {
+      const start = { ...currenLoc };
+      let escape = false;
+      let tokenText = '';
+      advance();
+      while (!isEOF() && (text[currenLoc.index] !== "'" || escape)) {
+        if (escape) {
+          tokenText += JSON.parse(`"\\${text[currenLoc.index]}"`);
+          escape = false;
+        } else if (text[currenLoc.index] === '\\') {
+          escape = true;
+        } else {
+          tokenText += text[currenLoc.index];
+        }
+        advance();
+      }
+
+      if (isEOF()) {
+        return compileError({ loc: start }, 'Unterminated char');
+      }
+
+      if (tokenText.length > 1) {
         return compileError(
           { loc: start },
-          'chars can only be one character long',
+          'Char values can be only one char long',
         );
       }
 
-      tokenizedFile.push({
-        type: TOKEN_TYPE.CHAR,
+      tokens.push({
+        type: TOKEN_TYPE.CHAR_CONST,
         loc: start,
-        text,
-        value: value.charCodeAt(0),
+        text: text.substring(start.index + 1, currenLoc.index),
+        value: tokenText,
       });
-    } else if (isNumber(reader.currentChar)) {
-      reader.advanceToEndOf(isNumber);
-      const text = reader.getToken(start.index, reader.loc.index + 1);
-      tokenizedFile.push({
-        type: TOKEN_TYPE.NUMBER,
-        loc: start,
-        text,
-        value: Number(text),
-      });
-    } else if (isBlockOpening(reader.currentChar)) {
-      const value = reader.getToken(start.index, reader.loc.index + 1);
-      const newBlock: tokenBlock = {
-        type: TOKEN_TYPE.BLOCK_START,
-        blockType: blockTypesChars[value],
-        text: blockTypesChars[value],
-        loc: start,
-      };
-      tokenizedFile.push(newBlock);
-      blockStack.push(newBlock);
-    } else if (isBlockClosing(reader.currentChar)) {
-      const value = reader.getToken(start.index, reader.loc.index + 1);
-      const blockType = blockTypesChars[value];
-      if (blockStack[blockStack.length - 1].blockType !== blockType) {
-        return compileError(
-          blockStack[blockStack.length - 1],
-          'Block not correctly closed',
-        );
+    } else if (isAlpha(currentChar)) {
+      const start = { ...currenLoc };
+      while (isAlphaNum(text[currenLoc.index + 1])) advance();
+
+      const tokenText = text.substring(start.index, currenLoc.index + 1);
+
+      if (Object.values(KEYWORD).includes(tokenText as KEYWORD)) {
+        tokens.push({
+          type: TOKEN_TYPE.KEYWORD,
+          loc: start,
+          text: tokenText,
+        });
       } else {
-        blockStack.pop();
+        tokens.push({
+          type: TOKEN_TYPE.IDENTIFIER,
+          loc: start,
+          text: tokenText,
+        });
       }
-      tokenizedFile.push({
-        type: TOKEN_TYPE.BLOCK_END,
-        blockType: blockTypesChars[value],
-        text: blockTypesChars[value],
-        loc: start,
+    } else if (next2Chars === '//') {
+      // ignore line comments
+      while (!isNewline(text[currenLoc.index + 1])) advance();
+    } else if (isDualCharOperator(next2Chars)) {
+      tokens.push({
+        type: TOKEN_TYPE.SYMBOL,
+        loc: { ...currenLoc },
+        text: next2Chars,
       });
-    } else if (isSpecialChar(reader.text, reader.loc.index)) {
-      const text = reader.getToken(start.index, reader.loc.index + 1);
-      tokenizedFile.push({
-        type: TOKEN_TYPE.SPECIAL,
-        loc: start,
-        text,
-      });
-    } else if (isArrow(reader.text, reader.loc.index)) {
-      reader.advanceByOne();
-      // double headed arrows <->
-      if (isArrow(reader.text, reader.loc.index)) reader.advanceByOne();
-      const text = reader.getToken(start.index, reader.loc.index + 1);
-      tokenizedFile.push({
-        type: TOKEN_TYPE.SPECIAL,
-        loc: start,
-        text,
-      });
-    } else if (isWord(reader.currentChar)) {
-      reader.advanceToEndOf(isWord);
-      const text = reader.getToken(start.index, reader.loc.index + 1);
-      tokenizedFile.push({
-        type: TOKEN_TYPE.WORD,
-        loc: start,
-        text,
+      advance();
+    } else {
+      tokens.push({
+        type: TOKEN_TYPE.SYMBOL,
+        loc: { ...currenLoc },
+        text: currentChar,
       });
     }
 
-    reader.advanceByOne();
-    reader.advanceTo(isNotEmpty);
+    advance();
   }
-
-  if (blockStack.length > 0) {
-    // the blockStack is not empty that means that some brackets has not been correctly closed
-    compileError(blockStack[0], 'Block not correctly closed');
-  }
-
-  tokenizedFile.push({
-    type: TOKEN_TYPE.BLOCK_END,
-    blockType: BLOCK_TYPE.FILE,
-    text: filename,
-    loc: { ...reader.loc },
-  });
 
   if (config.debugTokenizer) {
-    printTokenized(tokenizedFile);
+    printTokenized(tokens);
   }
 
-  return tokenizedFile;
+  return tokens;
 };
 
 export default tokenizer;

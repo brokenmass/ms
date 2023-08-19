@@ -3,10 +3,11 @@ import {
   EXPRESSION,
   EXPRESSION_TYPE,
   FUNCTION,
+  IDENTIFIER_TYPE,
   makeNumberExp,
   makeOpExp,
   VALUE_EXPRESSION,
-} from './ast-new';
+} from './ast';
 import { printAstTree } from './utils';
 
 // FindPureFunctions()
@@ -20,7 +21,7 @@ import { printAstTree } from './utils';
 //         //std::cerr << "Identifying " << f.name << '\n';
 //         // The function has side-effects, if there is _any_ pointer dereference
 //         // in the LHS side of an assign operator, or if the function calls
-//         // some other function that is known to have side-effects.
+//         // some other function that is known to have n.
 //         bool unknown_functions = false;
 //         bool side_effects      = for_all_expr(f.code, true, [&](const expression& exp)
 //         {
@@ -57,13 +58,6 @@ import { printAstTree } from './utils';
 //             std::cerr << "Could not figure out whether " << f.name << " is a pure function\n";
 // }
 
-// static bool for_all_expr(E& p, bool inclusive, F&&... funcs)
-// {
-//     static_assert(std::conjunction_v<std::is_invocable<F,expression&>...>);
-//     return std::any_of(p.params.begin(), p.params.end(), [&](E& e) { return for_all_expr(e, true, funcs...); })
-//          || (inclusive && ... && callv(funcs,false,p));
-// }
-
 const forEachExpression = (
   expression: EXPRESSION,
   inclusive: boolean,
@@ -76,16 +70,39 @@ const forEachExpression = (
   );
 };
 
-const isPure = (expression: EXPRESSION, evaluateParameters = true): boolean => {
+const isPure = (
+  context: CONTEXT,
+  expression: EXPRESSION,
+  evaluateParameters = true,
+): boolean => {
   // if any parameter is not pure, the expression is not pure
-  if (evaluateParameters && expression.params.some((p) => !isPure(p))) {
+  if (
+    evaluateParameters &&
+    expression.params.some((p) => !isPure(context, p))
+  ) {
     return false;
   }
 
   switch (expression.type) {
-    // TODO: Function calls will judged using a lookup.
-    // functions are not pure for now
     case EXPRESSION_TYPE.FUNCTION_CALL:
+      {
+        const callParam = expression.params[0];
+        const isFunctionIdentifier =
+          callParam.type === EXPRESSION_TYPE.IDENTIFIER &&
+          callParam.value.type === IDENTIFIER_TYPE.FUNCTION;
+
+        // exclude native 'functions' (they all have side effects)
+        if (isFunctionIdentifier && callParam.value.index >= 0) {
+          const func = context.functions[callParam.value.index];
+
+          if (func.isPure && func.isPureDetermined) {
+            return true;
+          }
+        }
+
+        return false;
+      }
+      break;
     case EXPRESSION_TYPE.COPY:
     case EXPRESSION_TYPE.RETURN:
     case EXPRESSION_TYPE.LOOP:
@@ -103,7 +120,11 @@ const equalExpressions = (a: EXPRESSION, b: EXPRESSION) =>
   a.params.every((_, i) => equalExpressions(a.params[i], b.params[i])) &&
   (a as VALUE_EXPRESSION).value === (b as VALUE_EXPRESSION).value;
 
-const simplifyExpression = (expression: EXPRESSION, func: FUNCTION) => {
+const simplifyExpression = (
+  context: CONTEXT,
+  expression: EXPRESSION,
+  func: FUNCTION,
+) => {
   // adopt parameters of child operations of the same type
   if (
     expression.type === EXPRESSION_TYPE.ADD ||
@@ -134,7 +155,7 @@ const simplifyExpression = (expression: EXPRESSION, func: FUNCTION) => {
           let lastNonPureIndex = fixerIndex - 1;
           while (
             lastNonPureIndex >= 0 &&
-            isPure(expression.params[lastNonPureIndex])
+            isPure(context, expression.params[lastNonPureIndex])
           ) {
             lastNonPureIndex--;
           }
@@ -171,7 +192,7 @@ const simplifyExpression = (expression: EXPRESSION, func: FUNCTION) => {
           let lastNonPureIndex = fixerIndex;
           while (
             lastNonPureIndex >= 0 &&
-            isPure(expression.params[lastNonPureIndex])
+            isPure(context, expression.params[lastNonPureIndex])
           ) {
             lastNonPureIndex--;
           }
@@ -188,7 +209,6 @@ const simplifyExpression = (expression: EXPRESSION, func: FUNCTION) => {
         }
       }
       break;
-
     case EXPRESSION_TYPE.EQ:
       {
         if (equalExpressions(expression.params[0], expression.params[1])) {
@@ -310,13 +330,13 @@ const simplifyExpression = (expression: EXPRESSION, func: FUNCTION) => {
       // for all params BUT the last one (that must be always preserved)
       for (let i = 0; i < expression.params.length - 1; ) {
         const param = expression.params[i];
-        if (isPure(param)) {
+        if (isPure(context, param)) {
           // if param is pure we can remove it completely
           expression.params.splice(i, 1);
         } else if (
           param.type !== EXPRESSION_TYPE.AND &&
           param.type !== EXPRESSION_TYPE.OR &&
-          isPure(param, false)
+          isPure(context, param, false)
         ) {
           // if operation is pure but parameters are not we can remove operation and adopt its parameters
           // AND and OR must be preserved as they execute code conditionally
@@ -326,6 +346,8 @@ const simplifyExpression = (expression: EXPRESSION, func: FUNCTION) => {
         }
       }
 
+      break;
+    case EXPRESSION_TYPE.COPY:
       break;
   }
 
@@ -343,7 +365,7 @@ const simplifyExpression = (expression: EXPRESSION, func: FUNCTION) => {
     Object.assign(expression, expression.params[0]);
   }
 
-  // arithmetic ops and commas with only one parameters can be reduced to the parameter itself (Casted as boolean) "&&(a) => a != 0 => ((a == 0) == 0)"
+  // logical ops with only one parameters can be reduced to the parameter itself (Casted as boolean) "&&(a) => a != 0 => ((a == 0) == 0)"
   if (
     expression.params.length === 1 &&
     [EXPRESSION_TYPE.AND, EXPRESSION_TYPE.OR].includes(expression.type)
@@ -400,7 +422,7 @@ const optimiseAst = (context: CONTEXT): CONTEXT => {
 
     context.functions.forEach((f) => {
       forEachExpression(f.code, true, (e: EXPRESSION) =>
-        simplifyExpression(e, f),
+        simplifyExpression(context, e, f),
       );
     });
     newStatus = printAstTree(context);

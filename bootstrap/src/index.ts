@@ -1,8 +1,8 @@
 import { writeFileSync } from 'fs';
 import * as path from 'path';
 // import { generateASM } from './asm';
-import { generateAST } from './ast-new';
-import tokenizer from './tokenizer-new';
+import { generateAST } from './ast';
+import tokenizer from './tokenizer';
 import { spawnSync } from 'child_process';
 import optimiseAst from './optimiseAst';
 
